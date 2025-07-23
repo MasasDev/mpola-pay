@@ -1,0 +1,11 @@
+# --- General Ignored Files (Applies to entire repository) ---
+.DS_Store          # macOS specific file
+Thumbs.db          # Windows thumbnail cache
+.localized         # macOS specific file
+.Spotlight-V100    # macOS Spotlight metadata
+.Trashes           # macOS trash directory
+desktop.ini        # Windows desktop configuration
+.env               # Common for root-level environment files
+.idea/             # IntelliJ IDEA project files
+.vscode/           # VS Code workspace files
+*.log              # General log files
