@@ -1,0 +1,104 @@
+<dialog id="viewSchedulesModal" #viewSchedulesModal class="modal">
+  <div class="modal-box max-w-4xl">
+    <h3 class="font-bold text-lg mb-4">
+      Scheduled Payments for {{ selectedRecipientForSchedule?.name }}
+    </h3>
+
+    <div class="overflow-x-auto" *ngIf="selectedRecipientForSchedule">
+      <table class="table table-zebra w-full">
+        <thead>
+          <tr>
+            <th>Amount</th>
+            <th>Frequency</th>
+            <th>Schedule Details</th>
+            <th>Next Payment</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let payment of selectedRecipientForSchedule.scheduledPayments">
+            <td>
+              <div class="font-bold text-success">\${{ payment.amount }}</div>
+            </td>
+            <td>
+              <div class="badge badge-outline">{{ payment.frequency }}</div>
+            </td>
+            <td>
+              <div class="text-sm">
+                <div *ngIf="payment.frequency === 'weekly'">
+                  {{ getDayName(payment.dayOfWeek) }} at {{ payment.time }}
+                </div>
+                <div *ngIf="payment.frequency === 'monthly'">
+                  Day {{ payment.dayOfMonth }} at {{ payment.time }}
+                </div>
+                <div *ngIf="payment.frequency === 'daily'">
+                  Daily at {{ payment.time }}
+                </div>
+                <div class="text-base-content/70">
+                  Started {{ payment.startDate | date:'MMM d, y' }}
+                </div>
+              </div>
+            </td>
+            <td>
+              <div class="text-sm">
+                <div class="font-semibold">{{ payment.nextExecution | date:'MMM d, y' }}</div>
+                <div class="text-base-content/70">{{ getTimeUntilPayment(payment.nextExecution) }}</div>
+              </div>
+            </td>
+            <td>
+              <div class="badge badge-sm" 
+                   [class.badge-success]="payment.isActive"
+                   [class.badge-warning]="!payment.isActive">
+                {{ payment.isActive ? 'Active' : 'Paused' }}
+              </div>
+            </td>
+            <td>
+              <div class="flex space-x-1">
+                <button class="btn btn-ghost btn-xs" 
+                        (click)="editScheduledPayment(payment)">
+                  Edit
+                </button>
+                <button class="btn btn-ghost btn-xs text-warning" 
+                        (click)="toggleScheduleStatus(payment)"
+                        *ngIf="payment.isActive">
+                  Pause
+                </button>
+                <button class="btn btn-ghost btn-xs text-success" 
+                        (click)="toggleScheduleStatus(payment)"
+                        *ngIf="!payment.isActive">
+                  Resume
+                </button>
+                <button class="btn btn-ghost btn-xs text-error" 
+                        (click)="deleteScheduledPayment(payment)">
+                  Delete
+                </button>
+              </div>
+            </td>
+          </tr>
+          <tr *ngIf="selectedRecipientForSchedule.scheduledPayments.length === 0">
+            <td colspan="6" class="text-center py-8">
+              <div class="text-base-content/60">
+                No scheduled payments found for this recipient.
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="modal-action">
+      <button 
+        class="btn btn-primary" 
+        (click)="addScheduledPayment()">
+        Add New Schedule
+      </button>
+      <button 
+        class="btn btn-ghost" 
+        (click)="viewSchedulesModal.close()">
+        Close
+      </button>
+    </div>
+  </div>
+</dialog>
+<app-schedule-payment-modal #scheduleModal></app-schedule-payment-modal>

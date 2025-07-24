@@ -1,0 +1,53 @@
+<dialog id="addRecipientModal" #addRecipientModal class="modal modal-bottom sm:modal-middle">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg mb-4">Add New Recipient</h3>
+
+    <form (ngSubmit)="addRecipient()" #recipientForm="ngForm">
+      <div class="form-control w-full mb-4">
+        <label class="label">
+          <span class="label-text">Full Name *</span>
+        </label>
+        <input 
+          type="text" 
+          placeholder="Enter full name" 
+          class="input input-bordered w-full" 
+          [(ngModel)]="newRecipient.name"
+          name="name"
+          required>
+      </div>
+
+      <div class="form-control w-full mb-4">
+        <label class="label">
+          <span class="label-text">Email Address *</span>
+        </label>
+        <input 
+          type="email" 
+          placeholder="Enter email address" 
+          class="input input-bordered w-full" 
+          [(ngModel)]="newRecipient.email"
+          name="email"
+          required
+          email>
+      </div>
+
+      <div class="form-control w-full mb-6">
+        <label class="label">
+          <span class="label-text">Phone Number</span>
+        </label>
+        <input 
+          type="tel" 
+          placeholder="Enter phone number (optional)" 
+          class="input input-bordered w-full" 
+          [(ngModel)]="newRecipient.phone"
+          name="phone">
+      </div>
+
+      <div class="modal-action">
+        <button type="button" class="btn btn-ghost" (click)="addRecipientModal.close()">Cancel</button>
+        <button type="submit" class="btn btn-primary" [disabled]="recipientForm.invalid">
+          Add Recipient
+        </button>
+      </div>
+    </form>
+  </div>
+</dialog>

@@ -1,0 +1,10 @@
+.timeline-vertical .timeline-item:not(:last-child):before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: calc(100% + 0.5rem);
+      height: 1rem;
+      width: 2px;
+      background: currentColor;
+      opacity: 0.3;
+    }

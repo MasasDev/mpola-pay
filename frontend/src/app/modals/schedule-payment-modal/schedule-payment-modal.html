@@ -1,0 +1,119 @@
+<dialog id="schedulePaymentModal" #schedulePaymentModal class="modal modal-bottom sm:modal-middle">
+  <div class="modal-box max-w-2xl">
+    <h3 class="font-bold text-lg mb-4">
+      Schedule Payment for {{ selectedRecipientForSchedule?.name }}
+    </h3>
+    
+    <form (ngSubmit)="addScheduledPayment()" #scheduleForm="ngForm">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Amount per payment *</span>
+          </label>
+          <input 
+            type="number" 
+            placeholder="250" 
+            class="input input-bordered" 
+            [(ngModel)]="newSchedule.amount"
+            name="amount"
+            required
+            min="1">
+        </div>
+
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Frequency *</span>
+          </label>
+          <select 
+            class="select select-bordered" 
+            [(ngModel)]="newSchedule.frequency"
+            name="frequency"
+            required>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </div>
+
+        <div class="form-control" *ngIf="newSchedule.frequency === 'weekly'">
+          <label class="label">
+            <span class="label-text">Day of Week</span>
+          </label>
+          <select class="select select-bordered" [(ngModel)]="newSchedule.dayOfWeek" name="dayOfWeek">
+            <option value="0">Sunday</option>
+            <option value="1">Monday</option>
+            <option value="2">Tuesday</option>
+            <option value="3">Wednesday</option>
+            <option value="4">Thursday</option>
+            <option value="5">Friday</option>
+            <option value="6">Saturday</option>
+          </select>
+        </div>
+
+        <div class="form-control" *ngIf="newSchedule.frequency === 'monthly'">
+          <label class="label">
+            <span class="label-text">Day of Month</span>
+          </label>
+          <input 
+            type="number" 
+            min="1" 
+            max="31" 
+            class="input input-bordered" 
+            [(ngModel)]="newSchedule.dayOfMonth"
+            name="dayOfMonth">
+        </div>
+
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Time</span>
+          </label>
+          <input 
+            type="time" 
+            class="input input-bordered" 
+            [(ngModel)]="newSchedule.time"
+            name="time"
+            required>
+        </div>
+
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text">Start Date</span>
+          </label>
+          <input 
+            type="date" 
+            class="input input-bordered" 
+            [(ngModel)]="newSchedule.startDate"
+            name="startDate"
+            required>
+        </div>
+      </div>
+
+      <div class="form-control mb-6">
+        <label class="label mr-2">
+          <span class="label-text">End Date (Optional) </span>
+        </label>
+        <input 
+          type="date" 
+          class="input input-bordered" 
+          [(ngModel)]="newSchedule.endDate"
+          name="endDate">
+      </div>
+
+      <div class="modal-action">
+        <button 
+          type="button" 
+          class="btn btn-ghost" 
+          (click)="schedulePaymentModal.close()">
+          Cancel
+        </button>
+        <button 
+          type="submit" 
+          class="btn btn-primary" 
+          [disabled]="scheduleForm.invalid">
+          {{ newSchedule.id ? 'Update Schedule' : 'Create Schedule' }}
+        </button>
+      </div>
+    </form>
+  </div>
+</dialog>
+

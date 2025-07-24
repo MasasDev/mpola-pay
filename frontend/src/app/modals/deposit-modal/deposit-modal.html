@@ -1,0 +1,31 @@
+<dialog id="depositModal" #depositModal class="modal modal-bottom sm:modal-middle">
+        <div class="modal-box">
+          <h3 class="font-bold text-lg mb-4">Deposit Funds</h3>
+          
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Amount to Deposit</span>
+            </label>
+            <input 
+              type="number" 
+              placeholder="1000" 
+              class="input input-bordered text-2xl" 
+              [(ngModel)]="depositAmount"
+              min="1">
+          </div>
+
+          <div class="alert alert-info mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <span>Funds will be available immediately for scheduling payments.</span>
+          </div>
+
+          <div class="modal-action">
+            <form method="dialog">
+              <button class="btn btn-ghost">Cancel</button>
+            </form>
+            <button class="btn btn-success" (click)="depositFunds()" [disabled]="!depositAmount || depositAmount <= 0">
+              Deposit \${{ depositAmount || 0 }}
+            </button>
+          </div>
+        </div>
+      </dialog>

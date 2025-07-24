@@ -1,0 +1,211 @@
+<div class="min-h-screen bg-base-200 p-4">
+  <!-- Dashboard Header -->
+  <div class="navbar bg-base-100 rounded-box shadow-lg mb-6">
+    <div class="flex-1">
+      <h1 class="text-2xl font-bold">Mpola pay</h1>
+      <div class="ml-4 text-sm text-base-content/70">
+        Manage scheduled payments and allowances
+      </div>
+    </div>
+    <div class="flex-none gap-2">
+      <button class="btn btn-secondary" (click)="openDepositModal()">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+        </svg>
+        Deposit Funds
+      </button>
+      <button class="btn btn-primary" (click)="openAddRecipientModal()">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        Add Recipient
+      </button>
+    </div>
+  </div>
+
+  <!-- Balance and Stats Cards -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+    <div class="stat bg-gradient-to-r from-primary to-primary-focus text-primary-content rounded-box shadow-lg">
+      <div class="stat-title text-primary-content/80">Current Balance</div>
+      <div class="stat-value">\${{ balanceService.getCurrentBalance().toLocaleString() }}</div>
+      <div class="stat-desc text-primary-content/70">Available for scheduling</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow">
+      <div class="stat-title">Total Recipients</div>
+      <div class="stat-value text-secondary">{{ recipients.length }}</div>
+      <div class="stat-desc">Active payment schedules</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow">
+      <div class="stat-title">Scheduled Amount</div>
+      <div class="stat-value text-warning">\${{ getTotalScheduled() }}</div>
+      <div class="stat-desc">Pending payments</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow">
+      <div class="stat-title">Next Payment</div>
+      <div class="stat-value text-success text-sm">{{ getNextPaymentTime() }}</div>
+      <div class="stat-desc">Upcoming disbursement</div>
+    </div>
+  </div>
+
+  <!-- Quick Actions -->
+  <div class="flex flex-wrap gap-2 mb-6">
+    <button class="btn btn-outline btn-sm" (click)="selectAll()">
+      {{ selectedRecipients.length === recipients.length ? 'Deselect All' : 'Select All' }}
+    </button>
+    <button class="btn btn-outline btn-sm" [disabled]="selectedRecipients.length === 0" (click)="openBulkScheduleModal()">
+      Bulk Schedule ({{ selectedRecipients.length }})
+    </button>
+    <button class="btn btn-outline btn-sm btn-error" [disabled]="selectedRecipients.length === 0" (click)="pauseSelected()">
+      Pause Selected
+    </button>
+  </div>
+
+  <!-- Recipients Table -->
+  <div class="card bg-base-100 shadow-lg">
+    <div class="card-body">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="card-title">Recipients & Schedules</h2>
+        <div class="form-control">
+          <input type="text" placeholder="Search recipients..." class="input input-bordered input-sm" [(ngModel)]="searchTerm">
+        </div>
+      </div>
+      
+      <div class="overflow-x-auto">
+        <table class="table table-zebra w-full">
+          <thead>
+            <tr>
+              <th>
+                <input type="checkbox" class="checkbox checkbox-sm" 
+                        [checked]="selectedRecipients.length === recipients.length && recipients.length > 0"
+                        (change)="selectAll()">
+              </th>
+              <th>Recipient</th>
+              <th>Next Payment</th>
+              <th>Amount & Frequency</th>
+              <th>Status</th>
+              <th>Progress</th>
+              <th>Actions</th>
+              <th></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let recipient of getFilteredRecipients()" 
+                class="hover" 
+                [class.bg-base-200]="selectedRecipients.includes(recipient.id)">
+              <td>
+                <input type="checkbox" class="checkbox checkbox-sm" 
+                        [checked]="selectedRecipients.includes(recipient.id)"
+                        (change)="toggleSelection(recipient.id)">
+              </td>
+              <td>
+                <div class="flex items-center space-x-3">
+                  <div class="avatar placeholder">
+                    <div class="bg-neutral-focus text-neutral-content rounded-full w-10">
+                      <span class="text-sm">{{ getInitials(recipient.name) }}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="font-bold">{{ recipient.name }}</div>
+                    <div class="text-sm text-base-content/70">{{ recipient.email }}</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div *ngIf="recipient.nextPayment" class="text-sm">
+                  <div class="font-semibold">{{ recipient.nextPayment | date:'MMM d' }}</div>
+                  <div class="text-base-content/70">{{ getTimeUntilPayment(recipient.nextPayment) }}</div>
+                </div>
+                <span *ngIf="!recipient.nextPayment" class="text-base-content/50">No schedule</span>
+              </td>
+              <td>
+                <div *ngIf="recipient.scheduledPayments.length > 0" class="text-sm">
+                  <div class="font-bold text-success">\${{ getActivePaymentAmount(recipient) }}</div>
+                  <div class="text-base-content/70">{{ getPaymentFrequency(recipient) }}</div>
+                </div>
+                <span *ngIf="recipient.scheduledPayments.length === 0" class="text-base-content/50">Not scheduled</span>
+              </td>
+              <td>
+                <div class="flex flex-col gap-1">
+                  <div class="badge badge-sm" 
+                        [class.badge-success]="recipient.status === 'active' && hasActiveSchedule(recipient)"
+                        [class.badge-warning]="recipient.status === 'active' && !hasActiveSchedule(recipient)"
+                        [class.badge-error]="recipient.status === 'inactive'">
+                    {{ getRecipientStatus(recipient) }}
+                  </div>
+                  <div *ngIf="hasActiveSchedule(recipient)" class="badge badge-xs badge-info">
+                    {{ getActiveScheduleCount(recipient) }} active
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div *ngIf="hasActiveSchedule(recipient)" class="w-full">
+                  <div class="text-xs text-base-content/70 mb-1">
+                    {{ getPaymentProgress(recipient) }}% completed
+                  </div>
+                  <progress class="progress progress-success w-20 h-2" 
+                            [value]="getPaymentProgress(recipient)" 
+                            max="100"></progress>
+                </div>
+              </td>
+              <td>
+                <div class="flex space-x-1">
+                  <button class="btn btn-ghost btn-xs" (click)="openScheduleModal(recipient)">
+                    {{ hasActiveSchedule(recipient) ? 'Edit' : 'Schedule' }}
+                  </button>
+                  <button *ngIf="hasActiveSchedule(recipient)" 
+                          class="btn btn-ghost btn-xs text-warning" 
+                          (click)="pauseSchedule(recipient)">
+                    Pause
+                  </button>
+                  <div class="dropdown dropdown-right dropdown-end">
+                    <label tabindex="0" class="btn btn-ghost btn-xs">⋮</label>
+                    <ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 z-100 rounded-box w-44 ">
+                      <li><a (click)="editRecipient(recipient)">Edit Info</a></li>
+                      <li><a (click)="viewSchedules(recipient)">View Schedules</a></li>
+                      <li><a (click)="viewHistory(recipient)">History</a></li>
+                      <li><a class="text-error" (click)="deleteRecipient(recipient.id)">Delete Recipient</a></li>
+                    </ul>
+                  </div>
+                </div>
+              </td>
+            </tr>
+            <tr *ngIf="getFilteredRecipients().length === 0">
+              <td colspan="7" class="text-center py-8">
+                <div class="text-base-content/60">
+                  {{ recipients.length === 0 ? 'No recipients found. Add your first recipient to get started!' : 'No recipients match your search.' }}
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upcoming Payments Preview -->
+  <div class="card bg-base-100 shadow-lg mt-6" *ngIf="getUpcomingPayments().length > 0">
+    <div class="card-body">
+      <h3 class="card-title">Upcoming Payments (Next 7 Days)</h3>
+      <div class="timeline timeline-vertical">
+        <div class="timeline-item" *ngFor="let payment of getUpcomingPayments().slice(0, 5)">
+          <div class="timeline-start">{{ payment.nextExecution | date:'MMM d' }}</div>
+          <div class="timeline-middle">
+            <div class="timeline-point timeline-point-primary"></div>
+          </div>
+          <div class="timeline-end timeline-box">
+            <div class="font-bold">{{ getRecipientName(payment.recipientId) }}</div>
+            <div class="text-success font-semibold">\${{ payment.amount }}</div>
+            <div class="text-sm text-base-content/70">{{ payment.frequency }} payment</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <app-add-recipient-modal (onSuccess)="refreshRecipients()"></app-add-recipient-modal>
+  <app-schedule-payment-modal></app-schedule-payment-modal>
+  <app-view-schedules-modal></app-view-schedules-modal>
+  <app-deposit-modal></app-deposit-modal>
+
+</div>
