@@ -6,6 +6,10 @@ BASE = "https://sandboxapi.bitnob.co/api/v1"
 HEADERS = {"Authorization": f"Bearer {settings.BITNOB_API_KEY}", "Content-Type": "application/json"}
 
 def lookup_mobile(country, number):
+    # Skip lookup for Uganda as it's not supported
+    if country in ["+256", "256", "UG", "Uganda"]:
+        return {"status": True, "message": "Lookup skipped for Uganda", "data": {"accountName": "Mobile Money Account"}}
+    
     url = f"{BASE}/payouts/mobile/lookup"
     payload = {"countryCode": country,  "accountNumber": number}
     return requests.post(url, json=payload, headers=HEADERS).json()

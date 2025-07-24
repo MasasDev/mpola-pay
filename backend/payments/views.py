@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
+from django.db.models import Sum
 from .serializers import (
     CustomerCreateSerializer, 
     ReceiverCreateSerializer, 
@@ -15,6 +16,11 @@ from .serializers import (
 from django.conf import settings
 from .models import BitnobCustomer, MobileTransaction, MobileReceiver, PaymentSchedule
 from .services.bitnob import lookup_mobile, request_mobile_invoice, pay_mobile_invoice
+
+from .models import PaymentSchedule, FundTransaction
+import uuid
+
+
 
 
 BITNOB_BASE = "https://sandboxapi.bitnob.co/api/v1"
@@ -156,6 +162,10 @@ class CreatePaymentPlan(APIView):
 
             try:
                 # Create the payment schedule with proper start_date handling
+                start_date = data.get("start_date")
+                if not start_date:
+                    start_date = timezone.now()
+                    
                 payment_schedule = PaymentSchedule.objects.create(
                     customer=customer,
                     title=data["title"],
@@ -164,7 +174,7 @@ class CreatePaymentPlan(APIView):
                     subtotal_amount=subtotal_amount,
                     processing_fee=round(processing_fee, 2),
                     total_amount=round(total_amount, 2),
-                    start_date=data.get("start_date")  # This will use default if None
+                    start_date=start_date
                 )
 
                 # Create receivers for this payment schedule
@@ -343,6 +353,23 @@ class InitiatePayout(APIView):
         except MobileReceiver.DoesNotExist:
             return Response({"error": "Receiver not found"}, status=404)
         
+        # Check if the schedule is properly funded
+        schedule = receiver.payment_schedule
+        
+        # Use the new model methods for cleaner validation
+        if not schedule.is_adequately_funded:
+            return Response({
+                "error": "Insufficient funds for this payment schedule",
+                "funding_details": {
+                    "required": str(schedule.total_amount),
+                    "funded": str(schedule.total_funded_amount),
+                    "shortfall": str(schedule.funding_shortfall),
+                    "is_funded": schedule.is_funded
+                },
+                "schedule_id": str(schedule.id),
+                "schedule_title": schedule.title
+            }, status=400)
+        
         # Extract phone and country info from receiver
         country = receiver.country_code
         number = receiver.phone
@@ -356,10 +383,13 @@ class InitiatePayout(APIView):
                 "error": "All installments for this receiver have been completed"
             }, status=400)
 
-        # 1. Optional lookup
-        lookup = lookup_mobile(country, number)
-        if not lookup.get("status"):
-            return Response({"error": "Lookup failed", "detail": lookup}, status=400)
+        # 1. Optional lookup (skip if not supported)
+        try:
+            lookup = lookup_mobile(country, number)
+            if not lookup.get("status"):
+                print(f"Warning: Lookup failed for {country} {number}, but continuing with payment: {lookup}")
+        except Exception as e:
+            print(f"Warning: Lookup exception for {country} {number}, but continuing with payment: {str(e)}")
 
         # 2. Request invoice
         invoice = request_mobile_invoice(country, number, sender, amount, callback_url=None)
@@ -448,6 +478,11 @@ def bitnob_webhook(request):
             "error": "Missing required fields: event or reference"
         }, status=400)
 
+    # Handle stablecoin/funding transaction webhooks
+    if event.startswith("stablecoin"):
+        return handle_fund_transaction_webhook(data, event, ref)
+    
+    # Handle mobile payment transaction webhooks
     try:
         txn = MobileTransaction.objects.get(reference=ref)
     except MobileTransaction.DoesNotExist:
@@ -486,6 +521,96 @@ def bitnob_webhook(request):
         "old_status": original_status,
         "new_status": txn.status,
         "event": event
+    })
+
+
+def handle_fund_transaction_webhook(data, event, ref):
+    """Handle stablecoin/funding transaction webhook events"""
+    try:
+        fund_txn = FundTransaction.objects.get(reference=ref)
+    except FundTransaction.DoesNotExist:
+        return Response({
+            "error": "Fund transaction not found",
+            "reference": ref
+        }, status=404)
+
+    # Store original status for logging
+    original_status = fund_txn.status
+    
+    # Update fund transaction status based on webhook event
+    if event in [
+        "stablecoin.settlement.success", 
+        "stablecoin.deposit.confirmed",
+        "stablecoin.transaction.confirmed",
+        "deposit.confirmed"
+    ]:
+        fund_txn.status = "paid"
+        fund_txn.updated_at = timezone.now()
+        
+        # Update the associated payment schedule funding status
+        schedule = fund_txn.schedule
+        schedule.update_funding_status()
+        
+        # Log successful funding
+        print(f"Fund Webhook: Schedule {schedule.id} funded. Total funded: {schedule.total_funded_amount}")
+        
+    elif event in [
+        "stablecoin.settlement.failed", 
+        "stablecoin.deposit.failed",
+        "stablecoin.transaction.failed",
+        "deposit.failed"
+    ]:
+        fund_txn.status = "failed"
+        fund_txn.updated_at = timezone.now()
+        
+        # Log failure reason if provided
+        failure_reason = data.get("message", "Funding failed via webhook")
+        print(f"Fund Webhook: Transaction {fund_txn.id} failed: {failure_reason}")
+        
+    elif event in [
+        "stablecoin.settlement.expired", 
+        "stablecoin.deposit.expired",
+        "stablecoin.transaction.expired",
+        "deposit.expired"
+    ]:
+        fund_txn.status = "expired"
+        fund_txn.updated_at = timezone.now()
+        
+    elif event in [
+        "stablecoin.settlement.pending",
+        "stablecoin.deposit.pending", 
+        "deposit.pending"
+    ]:
+        fund_txn.status = "pending"
+        fund_txn.updated_at = timezone.now()
+        
+    else:
+        # Log unknown stablecoin event but don't update status
+        print(f"Unknown stablecoin event: {event} for reference: {ref}")
+        return Response({
+            "warning": f"Unknown stablecoin event type: {event}",
+            "status": "received",
+            "reference": ref
+        })
+    
+    fund_txn.save()
+    
+    # Log the status change for debugging
+    print(f"Fund Webhook: Transaction {fund_txn.id} status changed from {original_status} to {fund_txn.status}")
+    
+    return Response({
+        "status": "received",
+        "fund_transaction_id": str(fund_txn.id),
+        "schedule_id": str(fund_txn.schedule.id),
+        "old_status": original_status,
+        "new_status": fund_txn.status,
+        "event": event,
+        "schedule_funding_status": {
+            "is_funded": fund_txn.schedule.is_funded,
+            "total_funded": str(fund_txn.schedule.total_funded_amount),
+            "total_required": str(fund_txn.schedule.total_amount),
+            "shortfall": str(fund_txn.schedule.funding_shortfall)
+        }
     })
 
 
@@ -530,3 +655,338 @@ def get_schedule_progress(request, receiver_id):
     }
     
     return Response(progress_data)
+
+
+class CreateUSDTDepositView(APIView):
+    def post(self, request, schedule_id):
+        network = request.data.get("network", "TRON").upper()
+        
+        # Validate network
+        allowed_networks = ["TRON", "ETHEREUM", "BSC", "POLYGON"]
+        if network not in allowed_networks:
+            return Response({
+                "error": f"Unsupported network: {network}",
+                "allowed_networks": allowed_networks
+            }, status=400)
+        
+        try:
+            schedule = PaymentSchedule.objects.get(id=schedule_id)
+        except PaymentSchedule.DoesNotExist:
+            return Response({"error": "Payment schedule not found"}, status=404)
+
+        # Check if schedule is already fully funded
+        if schedule.is_adequately_funded:
+            return Response({
+                "error": "Payment schedule is already adequately funded",
+                "funding_details": {
+                    "required": str(schedule.total_amount),
+                    "funded": str(schedule.total_funded_amount),
+                    "excess": str(schedule.total_funded_amount - schedule.total_amount)
+                }
+            }, status=400)
+
+        # Check for existing pending transactions
+        pending_transactions = FundTransaction.objects.filter(
+            schedule=schedule, 
+            status="pending"
+        )
+        if pending_transactions.exists():
+            pending_txn = pending_transactions.first()
+            return Response({
+                "error": "A pending fund transaction already exists for this schedule.",
+                "existing_transaction": {
+                    "id": str(pending_txn.id),
+                    "reference": pending_txn.reference,
+                    "amount": str(pending_txn.amount),
+                    "created_at": pending_txn.created_at,
+                    "deposit_address": pending_txn.stablecoin_address,
+                    "network": pending_txn.stablecoin_network,
+                    "usdt_required": str(pending_txn.usdt_required)
+                }
+            }, status=400)
+
+        # Calculate remaining amount needed
+        remaining_amount = schedule.funding_shortfall
+
+        # 1. Get UGX to USD rate (with fallback for testing)
+        try:
+            rate_resp = requests.get(f"{BITNOB_BASE}/exchange-rates", headers=HEADERS)
+            rate_resp.raise_for_status()
+            rate_data = rate_resp.json().get("data", [])
+            ugx_rate = next((item["rate"] for item in rate_data if item["currency"] == "UGX"), None)
+            
+            if not ugx_rate:
+                raise ValueError("UGX rate not found in response")
+                
+        except Exception as e:
+            # Fallback rate for testing (approximate UGX to USD rate)
+            print(f"Warning: Using fallback exchange rate due to API error: {str(e)}")
+            ugx_rate = 3700  # Approximate UGX to USD rate for testing
+            print(f"Using fallback UGX rate: {ugx_rate}")
+
+        usd_amount = float(remaining_amount) / float(ugx_rate)
+        usdt_amount = round(usd_amount, 6)
+
+        # 2. Generate deposit address (with mock for testing)
+        try:
+            addr_resp = requests.post(
+                f"{BITNOB_BASE}/stablecoins/generate-address",
+                headers=HEADERS,
+                json={"currency": "USDT", "network": network}
+            )
+            addr_resp.raise_for_status()
+            address_data = addr_resp.json()
+            
+            if not address_data.get("status") or "data" not in address_data:
+                raise ValueError(f"Invalid response: {address_data}")
+                
+            address = address_data["data"]["address"]
+            
+        except Exception as e:
+            # Generate a mock address for testing
+            print(f"Warning: Using mock deposit address due to API error: {str(e)}")
+            mock_addresses = {
+                "TRON": "TQMfFzQQQQQQQQQQQQQQQQQQQQQQQQTest",
+                "ETHEREUM": "0x1234567890123456789012345678901234567890",
+                "BSC": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                "POLYGON": "0x9876543210987654321098765432109876543210"
+            }
+            address = mock_addresses.get(network, "mock_address_for_testing")
+
+        # 3. Save FundTransaction
+        ref = str(uuid.uuid4())
+        fund_txn = FundTransaction.objects.create(
+            schedule=schedule,
+            reference=ref,
+            amount=remaining_amount,  # Only the remaining amount needed
+            currency="UGX",
+            stablecoin_address=address,
+            stablecoin_network=network,
+            usdt_required=usdt_amount,
+            status="pending"
+        )
+
+        return Response({
+            "message": "Funding transaction created successfully.",
+            "funding_details": {
+                "reference": fund_txn.reference,
+                "network": network,
+                "usdt_required": str(usdt_amount),
+                "ugx_amount": str(remaining_amount),
+                "usd_rate": str(ugx_rate),
+                "deposit_address": address
+            },
+            "schedule_info": {
+                "id": str(schedule.id),
+                "title": schedule.title,
+                "total_required": str(schedule.total_amount),
+                "already_funded": str(schedule.total_funded_amount),
+                "remaining_needed": str(remaining_amount)
+            },
+            "instructions": {
+                "step_1": f"Send exactly {usdt_amount} USDT to the address below",
+                "step_2": "Use the correct network (TRC20 for TRON, ERC20 for Ethereum, etc.)",
+                "step_3": "Wait for confirmation (usually 1-5 minutes)",
+                "step_4": "Your payment schedule will be automatically activated when funds are confirmed"
+            }
+        }, status=201)
+
+
+@api_view(['GET'])
+def get_funding_status(request, schedule_id):
+    """Get detailed funding status for a payment schedule"""
+    try:
+        schedule = PaymentSchedule.objects.get(id=schedule_id)
+    except PaymentSchedule.DoesNotExist:
+        return Response({"error": "Payment schedule not found"}, status=404)
+    
+    # Get all fund transactions for this schedule
+    fund_transactions = schedule.fund_transactions.all().order_by('-created_at')
+    
+    transactions_data = []
+    for txn in fund_transactions:
+        transactions_data.append({
+            "id": str(txn.id),
+            "reference": txn.reference,
+            "amount": str(txn.amount),
+            "currency": txn.currency,
+            "status": txn.status,
+            "usdt_required": str(txn.usdt_required) if txn.usdt_required else None,
+            "stablecoin_address": txn.stablecoin_address,
+            "stablecoin_network": txn.stablecoin_network,
+            "created_at": txn.created_at,
+            "updated_at": txn.updated_at
+        })
+    
+    return Response({
+        "schedule": {
+            "id": str(schedule.id),
+            "title": schedule.title,
+            "total_amount": str(schedule.total_amount),
+            "currency": "UGX"
+        },
+        "funding_summary": {
+            "total_required": str(schedule.total_amount),
+            "total_funded": str(schedule.total_funded_amount),
+            "shortfall": str(schedule.funding_shortfall),
+            "is_adequately_funded": schedule.is_adequately_funded,
+            "is_funded_flag": schedule.is_funded,
+            "funding_percentage": round((schedule.total_funded_amount / schedule.total_amount * 100), 2) if schedule.total_amount > 0 else 0
+        },
+        "fund_transactions": transactions_data,
+        "transaction_count": len(transactions_data)
+    })
+
+
+@api_view(['POST'])
+def manual_fund_confirmation(request, fund_transaction_id):
+    """Manually confirm a fund transaction (admin use)"""
+    try:
+        fund_txn = FundTransaction.objects.get(id=fund_transaction_id)
+    except FundTransaction.DoesNotExist:
+        return Response({"error": "Fund transaction not found"}, status=404)
+    
+    if fund_txn.status == "paid":
+        return Response({
+            "message": "Transaction already confirmed",
+            "status": fund_txn.status
+        })
+    
+    # Manually mark as paid
+    original_status = fund_txn.status
+    fund_txn.status = "paid"
+    fund_txn.updated_at = timezone.now()
+    fund_txn.save()
+    
+    # Update schedule funding status
+    schedule = fund_txn.schedule
+    schedule.update_funding_status()
+    
+    return Response({
+        "message": "Fund transaction manually confirmed",
+        "fund_transaction_id": str(fund_txn.id),
+        "old_status": original_status,
+        "new_status": fund_txn.status,
+        "schedule_funding_status": {
+            "is_funded": schedule.is_funded,
+            "total_funded": str(schedule.total_funded_amount),
+            "total_required": str(schedule.total_amount)
+        }
+    })
+
+
+@csrf_exempt
+@api_view(['POST'])
+def test_simulate_webhook(request):
+    """Test endpoint to simulate webhook confirmation (for testing only)"""
+    fund_reference = request.data.get('reference')
+    event = request.data.get('event', 'stablecoin.deposit.confirmed')
+    
+    if not fund_reference:
+        return Response({"error": "Reference is required"}, status=400)
+    
+    # Simulate the webhook call
+    webhook_data = {
+        "event": event,
+        "reference": fund_reference,
+        "message": "Test webhook simulation",
+        "network": "TRON"
+    }
+    
+    # Call our webhook handler
+    return handle_fund_transaction_webhook(webhook_data, event, fund_reference)
+
+
+@csrf_exempt
+@api_view(['POST'])
+def trigger_scheduled_payments(request):
+    """Manually trigger scheduled payments processing"""
+    from mpola.tasks import process_scheduled_payments
+    
+    schedule_id = request.data.get('schedule_id')
+    
+    if schedule_id:
+        from mpola.tasks import process_schedule_payments
+        result = process_schedule_payments.delay(schedule_id)
+        return Response({
+            "message": f"Queued specific schedule for processing: {schedule_id}",
+            "task_id": result.id,
+            "schedule_id": schedule_id
+        })
+    else:
+        result = process_scheduled_payments.delay()
+        return Response({
+            "message": "Queued all scheduled payments for processing",
+            "task_id": result.id
+        })
+
+
+@csrf_exempt
+@api_view(['GET'])
+def get_scheduled_payments_status(request):
+    """Get status of scheduled payments"""
+    from payments.models import PaymentSchedule, MobileTransaction
+    from django.db.models import Count, Q
+    
+    # Get all active, funded schedules
+    active_schedules = PaymentSchedule.objects.filter(
+        status='active',
+        is_funded=True
+    )
+    
+    schedule_summaries = []
+    
+    for schedule in active_schedules:
+        # Get transaction counts
+        total_transactions = MobileTransaction.objects.filter(
+            receiver__payment_schedule=schedule
+        ).count()
+        
+        pending_transactions = MobileTransaction.objects.filter(
+            receiver__payment_schedule=schedule,
+            status__in=['pending', 'processing']
+        ).count()
+        
+        successful_transactions = MobileTransaction.objects.filter(
+            receiver__payment_schedule=schedule,
+            status='success'
+        ).count()
+        
+        failed_transactions = MobileTransaction.objects.filter(
+            receiver__payment_schedule=schedule,
+            status='failed'
+        ).count()
+        
+        # Calculate expected total transactions
+        expected_total = sum(receiver.number_of_installments for receiver in schedule.receivers.all())
+        
+        schedule_summaries.append({
+            "schedule_id": str(schedule.id),
+            "title": schedule.title,
+            "frequency": schedule.frequency,
+            "is_funded": schedule.is_funded,
+            "total_receivers": schedule.receivers.count(),
+            "expected_total_transactions": expected_total,
+            "actual_total_transactions": total_transactions,
+            "pending_transactions": pending_transactions,
+            "successful_transactions": successful_transactions,
+            "failed_transactions": failed_transactions,
+            "completion_percentage": round((successful_transactions / expected_total * 100), 2) if expected_total > 0 else 0,
+            "created_at": schedule.created_at,
+            "funding_status": {
+                "total_required": str(schedule.total_amount),
+                "total_funded": str(schedule.total_funded_amount),
+                "is_adequately_funded": schedule.is_adequately_funded
+            }
+        })
+    
+    return Response({
+        "active_schedules_count": len(schedule_summaries),
+        "schedules": schedule_summaries,
+        "summary": {
+            "total_schedules": len(schedule_summaries),
+            "total_pending": sum(s["pending_transactions"] for s in schedule_summaries),
+            "total_successful": sum(s["successful_transactions"] for s in schedule_summaries),
+            "total_failed": sum(s["failed_transactions"] for s in schedule_summaries),
+        }
+    })

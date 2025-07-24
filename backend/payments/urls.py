@@ -9,4 +9,10 @@ urlpatterns = [
     path("webhook/", views.bitnob_webhook, name="bitnob_webhook"),
     path("initiate-payout/", views.InitiatePayout.as_view(), name="initiate_payout"),
     path("receiver-progress/<int:receiver_id>/", views.get_schedule_progress, name="receiver_progress"),
+    path("schedules/<uuid:schedule_id>/fund-usdt/", views.CreateUSDTDepositView.as_view(), name="fund-usdt"),
+    path("schedules/<uuid:schedule_id>/funding-status/", views.get_funding_status, name="funding_status"),
+    path("fund-transactions/<uuid:fund_transaction_id>/confirm/", views.manual_fund_confirmation, name="manual_fund_confirmation"),
+    path("test/simulate-webhook/", views.test_simulate_webhook, name="test_simulate_webhook"),
+    path("admin/trigger-scheduled-payments/", views.trigger_scheduled_payments, name="trigger_scheduled_payments"),
+    path("admin/scheduled-payments-status/", views.get_scheduled_payments_status, name="scheduled_payments_status"),
 ]

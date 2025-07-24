@@ -127,5 +127,26 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 BITNOB_API_KEY = 'sk.3a846ff0dfb8.7e7ddae08f05636a83433470b'
 
+# Celery Configuration
 CELERY_BROKER_URL = 'redis://localhost:6379/0'
 CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+
+# Celery Beat Configuration for Scheduled Tasks
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    'process-scheduled-payments': {
+        'task': 'mpola.tasks.process_scheduled_payments',
+        'schedule': crontab(minute=0, hour='*/2'),  # Every 2 hours
+        'options': {
+            'queue': 'scheduled_payments',
+            'routing_key': 'scheduled_payments',
+        }
+    },
+}
+
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
