@@ -1,0 +1,527 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "Mpola Payment Management API",
+		"description": "Complete API collection for testing the Mpola payment management system with Bitnob integration",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Create Customer",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    const response = pm.response.json();",
+							"    pm.environment.set(\"customer_bitnob_id\", response.bitnob_id);",
+							"    pm.environment.set(\"customer_email\", \"john.doe@example.com\");",
+							"    pm.test(\"Customer created successfully\", function () {",
+							"        pm.expect(response.message).to.eql(\"Customer created\");",
+							"        pm.expect(response.bitnob_id).to.be.a('string');",
+							"    });",
+							"} else {",
+							"    pm.test(\"Request failed\", function () {",
+							"        pm.response.to.have.status(400);",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"email\": \"john.doe@example.com\",\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"phone\": \"+2348123456789\",\n    \"countryCode\": \"NG\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/create-customer/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"create-customer",
+						""
+					]
+				}
+			}
+		},
+		{
+			"name": "2. Create Payment Schedule",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 201) {",
+							"    const response = pm.response.json();",
+							"    pm.environment.set(\"payment_schedule_id\", response.payment_schedule.id);",
+							"    pm.environment.set(\"receiver_id\", response.receivers[0].id);",
+							"    pm.test(\"Payment schedule created successfully\", function () {",
+							"        pm.expect(response.message).to.include(\"created successfully\");",
+							"        pm.expect(response.payment_schedule.id).to.be.a('string');",
+							"        pm.expect(response.receivers).to.be.an('array');",
+							"    });",
+							"} else {",
+							"    pm.test(\"Request failed\", function () {",
+							"        pm.response.to.have.status(400);",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"email\": \"{{customer_email}}\",\n    \"title\": \"Monthly Family Support\",\n    \"description\": \"Monthly payments to family members\",\n    \"frequency\": \"monthly\",\n    \"receivers\": [\n        {\n            \"name\": \"Jane Doe\",\n            \"phone\": \"+2348123456790\",\n            \"countryCode\": \"NG\",\n            \"amountPerInstallment\": 50000,\n            \"numberOfInstallments\": 12\n        },\n        {\n            \"name\": \"Mike Smith\",\n            \"phone\": \"+2348123456791\",\n            \"countryCode\": \"NG\",\n            \"amountPerInstallment\": 30000,\n            \"numberOfInstallments\": 6\n        }\n    ]\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/create-payment/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"create-payment",
+						""
+					]
+				}
+			}
+		},
+		{
+			"name": "3. List All Payment Schedules",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test(\"Response contains payment schedules\", function () {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('payment_schedules');",
+							"    pm.expect(jsonData).to.have.property('count');",
+							"    pm.expect(jsonData.payment_schedules).to.be.an('array');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/payment-schedules/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"payment-schedules",
+						""
+					]
+				}
+			}
+		},
+		{
+			"name": "4. List Payment Schedules by Customer",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test(\"Response filtered by customer\", function () {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.payment_schedules).to.be.an('array');",
+							"    if (jsonData.payment_schedules.length > 0) {",
+							"        pm.expect(jsonData.payment_schedules[0]).to.have.property('customer_name');",
+							"    }",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/payment-schedules/?customer_email={{customer_email}}&status=active",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"payment-schedules",
+						""
+					],
+					"query": [
+						{
+							"key": "customer_email",
+							"value": "{{customer_email}}"
+						},
+						{
+							"key": "status",
+							"value": "active"
+						}
+					]
+				}
+			}
+		},
+		{
+			"name": "5. Get Payment Schedule Details",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test(\"Response contains schedule details\", function () {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('payment_schedule');",
+							"    pm.expect(jsonData).to.have.property('receivers');",
+							"    pm.expect(jsonData.receivers).to.be.an('array');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/payment-schedules/{{payment_schedule_id}}/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"payment-schedules",
+						"{{payment_schedule_id}}",
+						""
+					]
+				}
+			}
+		},
+		{
+			"name": "6. Update Payment Schedule",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test(\"Schedule updated successfully\", function () {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.message).to.include(\"updated successfully\");",
+							"    pm.expect(jsonData.payment_schedule.status).to.eql(\"paused\");",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "PATCH",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"status\": \"paused\",\n    \"title\": \"Updated Monthly Family Support\",\n    \"description\": \"Updated description for the payment schedule\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/payment-schedules/{{payment_schedule_id}}/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"payment-schedules",
+						"{{payment_schedule_id}}",
+						""
+					]
+				}
+			}
+		},
+		{
+			"name": "7. Reactivate Payment Schedule",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test(\"Schedule reactivated successfully\", function () {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.payment_schedule.status).to.eql(\"active\");",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "PATCH",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"status\": \"active\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/payment-schedules/{{payment_schedule_id}}/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"payment-schedules",
+						"{{payment_schedule_id}}",
+						""
+					]
+				}
+			}
+		},
+		{
+			"name": "8. Initiate Payout",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    const response = pm.response.json();",
+							"    pm.environment.set(\"transaction_reference\", response.reference);",
+							"    pm.environment.set(\"transaction_id\", response.transactionId);",
+							"    pm.test(\"Payout initiated successfully\", function () {",
+							"        pm.expect(response.reference).to.be.a('string');",
+							"        pm.expect(response.transactionId).to.be.a('number');",
+							"    });",
+							"} else {",
+							"    pm.test(\"Payout initiation failed\", function () {",
+							"        pm.response.to.have.status(400);",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"countryCode\": \"NG\",\n    \"phone\": \"+2348123456790\",\n    \"senderName\": \"John Doe\",\n    \"amount\": \"50000\",\n    \"customerEmail\": \"{{customer_email}}\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/initiate-payout/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"initiate-payout",
+						""
+					]
+				}
+			}
+		},
+		{
+			"name": "9. Webhook - Payment Success",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test(\"Webhook received successfully\", function () {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.status).to.eql(\"received\");",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"event\": \"mobilepayment.settlement.success\",\n    \"reference\": \"{{transaction_reference}}\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/webhook/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"webhook",
+						""
+					]
+				}
+			}
+		},
+		{
+			"name": "10. Get Receiver Progress",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test(\"Progress data returned\", function () {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('receiver_id');",
+							"    pm.expect(jsonData).to.have.property('receiver_name');",
+							"    pm.expect(jsonData).to.have.property('progress_percentage');",
+							"    pm.expect(jsonData).to.have.property('transactions');",
+							"    pm.expect(jsonData.transactions).to.be.an('array');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/balance-progress/{{receiver_id}}/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"balance-progress",
+						"{{receiver_id}}",
+						""
+					]
+				}
+			}
+		},
+		{
+			"name": "11. Webhook - Payment Failure",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test(\"Webhook received successfully\", function () {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.status).to.eql(\"received\");",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"event\": \"mobilepayment.settlement.failed\",\n    \"reference\": \"{{transaction_reference}}\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/webhook/",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"webhook",
+						""
+					]
+				}
+			}
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		}
+	]
+}

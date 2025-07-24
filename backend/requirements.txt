@@ -1,0 +1,4 @@
+celery
+redis
+django_celery_beat
+djangorestframework
