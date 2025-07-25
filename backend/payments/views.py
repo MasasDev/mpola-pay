@@ -1,10 +1,12 @@
 # views.py
 import requests
 from rest_framework.views import APIView
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from django.utils import timezone
 from django.db.models import Sum
 from .serializers import (
@@ -353,18 +355,22 @@ class InitiatePayout(APIView):
         except MobileReceiver.DoesNotExist:
             return Response({"error": "Receiver not found"}, status=404)
         
-        # Check if the schedule is properly funded
+        # Check if the schedule has enough funding for this specific installment
         schedule = receiver.payment_schedule
+        installment_amount = receiver.amount_per_installment
         
-        # Use the new model methods for cleaner validation
-        if not schedule.is_adequately_funded:
+        # Check if there's enough funding for this specific installment
+        if not schedule.has_sufficient_funds_for_amount(installment_amount):
             return Response({
-                "error": "Insufficient funds for this payment schedule",
+                "error": "Insufficient available balance for this installment",
                 "funding_details": {
-                    "required": str(schedule.total_amount),
-                    "funded": str(schedule.total_funded_amount),
+                    "installment_amount": str(installment_amount),
+                    "available_balance": str(schedule.available_balance),
+                    "total_funded": str(schedule.total_funded_amount),
+                    "total_payments_made": str(schedule.total_payments_made),
+                    "total_required_for_schedule": str(schedule.total_amount),
                     "shortfall": str(schedule.funding_shortfall),
-                    "is_funded": schedule.is_funded
+                    "is_fully_funded": schedule.is_adequately_funded
                 },
                 "schedule_id": str(schedule.id),
                 "schedule_title": schedule.title
@@ -381,6 +387,22 @@ class InitiatePayout(APIView):
         if receiver.completed_installments >= receiver.number_of_installments:
             return Response({
                 "error": "All installments for this receiver have been completed"
+            }, status=400)
+
+        # Check if the payment is due based on schedule timing
+        can_pay, timing_message = receiver.can_receive_next_installment()
+        if not can_pay:
+            payment_info = receiver.get_next_payment_info()
+            return Response({
+                "error": "Payment not allowed at this time",
+                "reason": timing_message,
+                "payment_schedule_info": {
+                    "frequency": payment_info["schedule_frequency"],
+                    "next_payment_date": payment_info["next_payment_date"],
+                    "current_time": payment_info["current_time"],
+                    "time_until_next_payment_seconds": payment_info["time_until_next_payment"],
+                    "next_installment_number": payment_info["next_installment_number"]
+                }
             }, status=400)
 
         # 1. Optional lookup (skip if not supported)
@@ -498,6 +520,11 @@ def bitnob_webhook(request):
     if event == "mobilepayment.settlement.success":
         txn.status = "success"
         txn.completed_at = timezone.now()
+        
+        # Update the payment schedule's payment dates when a transaction succeeds
+        schedule = txn.receiver.payment_schedule
+        schedule.update_payment_dates()
+        
     elif event == "mobilepayment.settlement.failed":
         txn.status = "failed"
         txn.failure_reason = data.get("message", "Payment failed via webhook")
@@ -828,6 +855,8 @@ def get_funding_status(request, schedule_id):
         "funding_summary": {
             "total_required": str(schedule.total_amount),
             "total_funded": str(schedule.total_funded_amount),
+            "total_payments_made": str(schedule.total_payments_made),
+            "available_balance": str(schedule.available_balance),
             "shortfall": str(schedule.funding_shortfall),
             "is_adequately_funded": schedule.is_adequately_funded,
             "is_funded_flag": schedule.is_funded,
@@ -897,32 +926,64 @@ def test_simulate_webhook(request):
     return handle_fund_transaction_webhook(webhook_data, event, fund_reference)
 
 
-@csrf_exempt
 @api_view(['POST'])
+@permission_classes([AllowAny])
+@csrf_exempt
 def trigger_scheduled_payments(request):
     """Manually trigger scheduled payments processing"""
-    from mpola.tasks import process_scheduled_payments
-    
     schedule_id = request.data.get('schedule_id')
     
-    if schedule_id:
-        from mpola.tasks import process_schedule_payments
-        result = process_schedule_payments.delay(schedule_id)
-        return Response({
-            "message": f"Queued specific schedule for processing: {schedule_id}",
-            "task_id": result.id,
-            "schedule_id": schedule_id
-        })
-    else:
-        result = process_scheduled_payments.delay()
-        return Response({
-            "message": "Queued all scheduled payments for processing",
-            "task_id": result.id
-        })
+    # For demo purposes, let's try to call the task directly if Celery is not available
+    try:
+        from mpola.tasks import process_scheduled_payments
+        
+        if schedule_id:
+            from mpola.tasks import process_schedule_payments
+            result = process_schedule_payments.delay(schedule_id)
+            return Response({
+                "message": f"Queued specific schedule for processing: {schedule_id}",
+                "task_id": result.id,
+                "schedule_id": schedule_id
+            })
+        else:
+            result = process_scheduled_payments.delay()
+            return Response({
+                "message": "Queued all scheduled payments for processing",
+                "task_id": result.id
+            })
+    except Exception as celery_error:
+        # If Celery is not available, run the task synchronously for demo
+        try:
+            from mpola.tasks import process_scheduled_payments, process_schedule_payments
+            
+            if schedule_id:
+                # Import the actual function without using .delay()
+                result = process_schedule_payments(schedule_id)
+                return Response({
+                    "message": f"Processed specific schedule directly (Celery unavailable): {schedule_id}",
+                    "result": result,
+                    "schedule_id": schedule_id,
+                    "note": "Executed synchronously - Celery broker not available"
+                })
+            else:
+                result = process_scheduled_payments()
+                return Response({
+                    "message": "Processed all scheduled payments directly (Celery unavailable)",
+                    "result": result,
+                    "note": "Executed synchronously - Celery broker not available"
+                })
+        except Exception as task_error:
+            return Response({
+                "error": "Failed to process scheduled payments",
+                "celery_error": str(celery_error),
+                "task_error": str(task_error),
+                "note": "Both Celery queuing and direct execution failed"
+            }, status=500)
 
 
-@csrf_exempt
 @api_view(['GET'])
+@permission_classes([AllowAny])
+@csrf_exempt
 def get_scheduled_payments_status(request):
     """Get status of scheduled payments"""
     from payments.models import PaymentSchedule, MobileTransaction
@@ -965,6 +1026,9 @@ def get_scheduled_payments_status(request):
             "title": schedule.title,
             "frequency": schedule.frequency,
             "is_funded": schedule.is_funded,
+            "next_payment_date": schedule.next_payment_date,
+            "last_payment_date": schedule.last_payment_date,
+            "is_payment_due": schedule.is_payment_due(),
             "total_receivers": schedule.receivers.count(),
             "expected_total_transactions": expected_total,
             "actual_total_transactions": total_transactions,
@@ -988,5 +1052,113 @@ def get_scheduled_payments_status(request):
             "total_pending": sum(s["pending_transactions"] for s in schedule_summaries),
             "total_successful": sum(s["successful_transactions"] for s in schedule_summaries),
             "total_failed": sum(s["failed_transactions"] for s in schedule_summaries),
+        },
+        "current_time": timezone.now()
+    })
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@csrf_exempt
+def create_test_schedule(request):
+    """Create a test payment schedule with 2-minute frequency for testing"""
+    # Get or create a test customer
+    test_customer, created = BitnobCustomer.objects.get_or_create(
+        email="test@example.com",
+        defaults={
+            "first_name": "Test",
+            "last_name": "User",
+            "phone": "+256700000000",
+            "country_code": "UG",
+            "bitnob_id": "test_customer_id"
+        }
+    )
+    
+    # Create test payment schedule with 2-minute frequency
+    schedule = PaymentSchedule.objects.create(
+        customer=test_customer,
+        title="Test 30-Second Schedule",
+        description="Test schedule with 30-second intervals for testing",
+        frequency="test_30sec",
+        subtotal_amount=1000,
+        processing_fee=15,
+        total_amount=1015,
+        start_date=timezone.now(),
+        is_funded=True  # Mark as funded for testing
+    )
+    
+    # Create test receiver
+    receiver = MobileReceiver.objects.create(
+        payment_schedule=schedule,
+        customer=test_customer,
+        name="Test Receiver",
+        phone="+256700000001",
+        country_code="UG",
+        amount_per_installment=100,
+        number_of_installments=10
+    )
+    
+    # Create a mock fund transaction to make the schedule actually funded
+    from .models import FundTransaction
+    import uuid
+    fund_txn = FundTransaction.objects.create(
+        schedule=schedule,
+        reference=str(uuid.uuid4()),
+        amount=1015,  # Full amount
+        currency="UGX",
+        status="paid"  # Mark as paid
+    )
+    
+    return Response({
+        "message": "Test schedule created successfully",
+        "schedule": {
+            "id": str(schedule.id),
+            "title": schedule.title,
+            "frequency": schedule.frequency,
+            "next_payment_date": schedule.next_payment_date,
+            "is_payment_due": schedule.is_payment_due(),
+            "current_time": timezone.now()
+        },
+        "receiver": {
+            "id": receiver.id,
+            "name": receiver.name,
+            "phone": receiver.phone,
+            "can_receive_payment": receiver.can_receive_next_installment()
+        }
+    }, status=201)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+@csrf_exempt
+def check_payment_timing(request, receiver_id):
+    """Check if a receiver can receive a payment right now"""
+    try:
+        receiver = MobileReceiver.objects.get(id=receiver_id)
+    except MobileReceiver.DoesNotExist:
+        return Response({"error": "Receiver not found"}, status=404)
+    
+    can_pay, message = receiver.can_receive_next_installment()
+    payment_info = receiver.get_next_payment_info()
+    
+    return Response({
+        "receiver": {
+            "id": receiver.id,
+            "name": receiver.name,
+            "phone": receiver.phone
+        },
+        "payment_status": {
+            "can_pay_now": can_pay,
+            "message": message,
+            "next_installment_number": payment_info["next_installment_number"],
+            "completed_installments": receiver.completed_installments,
+            "total_installments": receiver.number_of_installments
+        },
+        "timing_info": {
+            "schedule_frequency": payment_info["schedule_frequency"],
+            "next_payment_date": payment_info["next_payment_date"],
+            "current_time": payment_info["current_time"],
+            "time_until_next_payment_seconds": payment_info["time_until_next_payment"],
+            "is_payment_due": receiver.payment_schedule.is_payment_due()
         }
     })

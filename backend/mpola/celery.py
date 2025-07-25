@@ -10,8 +10,15 @@ app = Celery('mpola')
 # the configuration object to child processes.
 app.config_from_object('django.conf:settings', namespace='CELERY')
 
+# Setup Django before autodiscovering tasks
+import django
+django.setup()
+
 # Load task modules from all registered Django apps.
 app.autodiscover_tasks()
+
+# Explicitly import our tasks to ensure they are registered
+from . import tasks
 
 @app.task(bind=True, ignore_result=True)
 def debug_task(self):

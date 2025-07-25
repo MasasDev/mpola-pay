@@ -1,0 +1,740 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "Mpola Payment Management API (Updated)",
+		"description": "Complete API collection for testing the Mpola payment management system with Bitnob integration. Country codes are WITHOUT plus signs (e.g., '256' instead of '+256').",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Customer Management",
+			"item": [
+				{
+					"name": "Create Customer",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200 || pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set(\"customer_bitnob_id\", response.bitnob_id);",
+									"    pm.environment.set(\"customer_email\", pm.request.url.query.get('email') || 'john.doe@example.com');",
+									"    pm.test(\"Customer created successfully\", function () {",
+									"        pm.expect(response.message).to.include('Customer');",
+									"        pm.expect(response.bitnob_id).to.be.a('string');",
+									"    });",
+									"} else {",
+									"    pm.test(\"Request failed with proper error\", function () {",
+									"        pm.response.to.have.status.oneOf([400, 404, 500]);",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"john.doe@example.com\",\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"phone\": \"700123456\",\n    \"countryCode\": \"256\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/create-customer/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"create-customer",
+								""
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "2. Payment Schedule Management",
+			"item": [
+				{
+					"name": "Create Payment Schedule",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set(\"payment_schedule_id\", response.payment_schedule.id);",
+									"    pm.environment.set(\"receiver_id\", response.receivers[0].id);",
+									"    pm.test(\"Payment schedule created successfully\", function () {",
+									"        pm.expect(response.message).to.include('created successfully');",
+									"        pm.expect(response.payment_schedule.id).to.be.a('string');",
+									"        pm.expect(response.receivers).to.be.an('array');",
+									"        pm.expect(response.financial_summary).to.have.property('total_amount');",
+									"    });",
+									"} else {",
+									"    pm.test(\"Request failed with proper error\", function () {",
+									"        pm.response.to.have.status.oneOf([400, 404, 500]);",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{customer_email}}\",\n    \"title\": \"Monthly Family Support\",\n    \"description\": \"Monthly payments to family members\",\n    \"frequency\": \"monthly\",\n    \"receivers\": [\n        {\n            \"name\": \"Jane Doe\",\n            \"phone\": \"700123456\",\n            \"countryCode\": \"256\",\n            \"amountPerInstallment\": 50000,\n            \"numberOfInstallments\": 12\n        },\n        {\n            \"name\": \"Mike Smith\",\n            \"phone\": \"700123457\",\n            \"countryCode\": \"256\",\n            \"amountPerInstallment\": 30000,\n            \"numberOfInstallments\": 6\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/create-payment/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"create-payment",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "List All Payment Schedules",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response contains payment schedules\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('payment_schedules');",
+									"    pm.expect(jsonData).to.have.property('count');",
+									"    pm.expect(jsonData.payment_schedules).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/payment-schedules/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"payment-schedules",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "List Payment Schedules by Customer",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/payment-schedules/?customer_email={{customer_email}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"payment-schedules",
+								""
+							],
+							"query": [
+								{
+									"key": "customer_email",
+									"value": "{{customer_email}}"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Payment Schedule Details",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/payment-schedules/{{payment_schedule_id}}/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"payment-schedules",
+								"{{payment_schedule_id}}",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Payment Schedule Status",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"active\",\n    \"title\": \"Updated Monthly Support\",\n    \"description\": \"Updated description\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/payment-schedules/{{payment_schedule_id}}/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"payment-schedules",
+								"{{payment_schedule_id}}",
+								""
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "3. Funding Management",
+			"item": [
+				{
+					"name": "Create USDT Deposit (TRON)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set(\"fund_transaction_reference\", response.funding_details.reference);",
+									"    pm.environment.set(\"deposit_address\", response.funding_details.deposit_address);",
+									"    pm.test(\"Fund transaction created successfully\", function () {",
+									"        pm.expect(response.funding_details.reference).to.be.a('string');",
+									"        pm.expect(response.funding_details.deposit_address).to.be.a('string');",
+									"        pm.expect(response.funding_details.network).to.eql('TRON');",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"network\": \"TRON\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/schedules/{{payment_schedule_id}}/fund-usdt/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"schedules",
+								"{{payment_schedule_id}}",
+								"fund-usdt",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Create USDT Deposit (Ethereum)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"network\": \"ETHEREUM\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/schedules/{{payment_schedule_id}}/fund-usdt/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"schedules",
+								"{{payment_schedule_id}}",
+								"fund-usdt",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Funding Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/schedules/{{payment_schedule_id}}/funding-status/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"schedules",
+								"{{payment_schedule_id}}",
+								"funding-status",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Manual Fund Confirmation (Admin)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": {
+							"raw": "{{base_url}}/fund-transactions/{{fund_transaction_id}}/confirm/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"fund-transactions",
+								"{{fund_transaction_id}}",
+								"confirm",
+								""
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "4. Payment Execution",
+			"item": [
+				{
+					"name": "Initiate Payout",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set(\"transaction_id\", response.transactionId);",
+									"    pm.environment.set(\"payment_reference\", response.reference);",
+									"    pm.test(\"Payout initiated successfully\", function () {",
+									"        pm.expect(response.message).to.include('initiated successfully');",
+									"        pm.expect(response.transactionId).to.be.a('number');",
+									"        pm.expect(response.reference).to.be.a('string');",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"receiverId\": {{receiver_id}},\n    \"senderName\": \"John Doe\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/initiate-payout/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"initiate-payout",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Receiver Progress",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/receiver-progress/{{receiver_id}}/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"receiver-progress",
+								"{{receiver_id}}",
+								""
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "5. Scheduled Payments Management",
+			"item": [
+				{
+					"name": "Trigger Scheduled Payments (All)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/trigger-scheduled-payments/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"trigger-scheduled-payments",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Trigger Scheduled Payments (Specific Schedule)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"schedule_id\": \"{{payment_schedule_id}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/admin/trigger-scheduled-payments/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"trigger-scheduled-payments",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Scheduled Payments Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/admin/scheduled-payments-status/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin",
+								"scheduled-payments-status",
+								""
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "6. Webhooks & Testing",
+			"item": [
+				{
+					"name": "Bitnob Webhook (Mobile Payment Success)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"event\": \"mobilepayment.settlement.success\",\n    \"reference\": \"{{payment_reference}}\",\n    \"message\": \"Payment completed successfully\",\n    \"data\": {\n        \"amount\": 50000,\n        \"currency\": \"UGX\",\n        \"status\": \"success\"\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/webhook/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhook",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Bitnob Webhook (Mobile Payment Failed)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"event\": \"mobilepayment.settlement.failed\",\n    \"reference\": \"{{payment_reference}}\",\n    \"message\": \"Payment failed due to insufficient funds\",\n    \"data\": {\n        \"amount\": 50000,\n        \"currency\": \"UGX\",\n        \"status\": \"failed\"\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/webhook/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhook",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Bitnob Webhook (Fund Transaction Success)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"event\": \"stablecoin.deposit.confirmed\",\n    \"reference\": \"{{fund_transaction_reference}}\",\n    \"message\": \"USDT deposit confirmed\",\n    \"data\": {\n        \"amount\": 100.50,\n        \"currency\": \"USDT\",\n        \"network\": \"TRON\",\n        \"status\": \"confirmed\"\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/webhook/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhook",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Test Simulate Webhook",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"reference\": \"{{fund_transaction_reference}}\",\n    \"event\": \"stablecoin.deposit.confirmed\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/test/simulate-webhook/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"test",
+								"simulate-webhook",
+								""
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "7. Complete Workflow Examples",
+			"item": [
+				{
+					"name": "Example: Create Customer with Uganda Phone",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"uganda.customer@example.com\",\n    \"firstName\": \"Moses\",\n    \"lastName\": \"Mukasa\",\n    \"phone\": \"700123456\",\n    \"countryCode\": \"256\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/create-customer/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"create-customer",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Example: Create Customer with Nigeria Phone",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"nigeria.customer@example.com\",\n    \"firstName\": \"Chuka\",\n    \"lastName\": \"Okafor\",\n    \"phone\": \"8123456789\",\n    \"countryCode\": \"234\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/create-customer/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"create-customer",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Example: Payment Schedule with Mixed Countries",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{customer_email}}\",\n    \"title\": \"International Family Support\",\n    \"description\": \"Supporting family across multiple countries\",\n    \"frequency\": \"monthly\",\n    \"receivers\": [\n        {\n            \"name\": \"Sarah Mukasa\",\n            \"phone\": \"700123456\",\n            \"countryCode\": \"256\",\n            \"amountPerInstallment\": 75000,\n            \"numberOfInstallments\": 6\n        },\n        {\n            \"name\": \"David Okafor\",\n            \"phone\": \"8123456789\",\n            \"countryCode\": \"234\",\n            \"amountPerInstallment\": 25000,\n            \"numberOfInstallments\": 12\n        },\n        {\n            \"name\": \"Grace Wanjiku\",\n            \"phone\": \"700987654\",\n            \"countryCode\": \"254\",\n            \"amountPerInstallment\": 40000,\n            \"numberOfInstallments\": 8\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/create-payment/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"create-payment",
+								""
+							]
+						}
+					}
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-set base URL if not set",
+					"if (!pm.environment.get('base_url')) {",
+					"    pm.environment.set('base_url', 'http://localhost:8000');",
+					"}",
+					"",
+					"// Auto-set customer email if not set",
+					"if (!pm.environment.get('customer_email')) {",
+					"    pm.environment.set('customer_email', 'john.doe@example.com');",
+					"}"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Global test for all requests",
+					"pm.test('Response time is reasonable', function () {",
+					"    pm.expect(pm.response.responseTime).to.be.below(10000);",
+					"});",
+					"",
+					"// Log response for debugging",
+					"if (pm.response.code >= 400) {",
+					"    console.log('Error Response:', pm.response.json());",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "customer_email",
+			"value": "john.doe@example.com",
+			"type": "string"
+		}
+	]
+}

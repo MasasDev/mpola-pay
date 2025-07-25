@@ -15,7 +15,7 @@ def lookup_mobile(country, number):
     return requests.post(url, json=payload, headers=HEADERS).json()
 
 def request_mobile_invoice(country, number, sender_name, amount_cents, callback_url=None):
-    url = f"{BASE}/payouts/mobile/invoice"
+    url = f"{BASE}/mobile-payments/initiate"
     payload = {
         "countryCode": country,
         "accountNumber": number,

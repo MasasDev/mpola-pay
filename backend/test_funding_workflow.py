@@ -32,8 +32,8 @@ class FundingWorkflowTester:
             "email": f"test.funding.{uuid.uuid4().hex[:8]}@example.com",
             "firstName": "Test",
             "lastName": "Funding",
-            "phone": "+256700123456",
-            "countryCode": "UG"
+            "phone": "700123456",
+            "countryCode": "256"
         }
         
         response = requests.post(f"{self.base_url}/create-customer/", json=payload)
@@ -61,14 +61,14 @@ class FundingWorkflowTester:
                 {
                     "name": "Test Receiver 1",
                     "phone": "700123456",
-                    "countryCode": "+256",
+                    "countryCode": "256",
                     "amountPerInstallment": 50000,  # 50,000 UGX
                     "numberOfInstallments": 2
                 },
                 {
                     "name": "Test Receiver 2", 
                     "phone": "700123457",
-                    "countryCode": "+256",
+                    "countryCode": "256",
                     "amountPerInstallment": 30000,  # 30,000 UGX
                     "numberOfInstallments": 3
                 }

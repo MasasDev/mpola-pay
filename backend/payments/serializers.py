@@ -8,6 +8,10 @@ class CustomerCreateSerializer(serializers.Serializer):
     lastName = serializers.CharField()
     phone = serializers.CharField()
     countryCode = serializers.CharField()
+    
+    def validate_countryCode(self, value):
+        """Remove any plus signs from country code"""
+        return str(value).strip().lstrip('+')
 
 class ReceiverSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100)
@@ -15,6 +19,10 @@ class ReceiverSerializer(serializers.Serializer):
     countryCode = serializers.CharField(max_length=5)
     amountPerInstallment = serializers.DecimalField(max_digits=12, decimal_places=2)
     numberOfInstallments = serializers.IntegerField(min_value=1)
+    
+    def validate_countryCode(self, value):
+        """Remove any plus signs from country code"""
+        return str(value).strip().lstrip('+')
 
 class PaymentScheduleCreateSerializer(serializers.Serializer):
     email = serializers.EmailField()

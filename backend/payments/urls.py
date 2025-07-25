@@ -13,6 +13,8 @@ urlpatterns = [
     path("schedules/<uuid:schedule_id>/funding-status/", views.get_funding_status, name="funding_status"),
     path("fund-transactions/<uuid:fund_transaction_id>/confirm/", views.manual_fund_confirmation, name="manual_fund_confirmation"),
     path("test/simulate-webhook/", views.test_simulate_webhook, name="test_simulate_webhook"),
-    path("admin/trigger-scheduled-payments/", views.trigger_scheduled_payments, name="trigger_scheduled_payments"),
-    path("admin/scheduled-payments-status/", views.get_scheduled_payments_status, name="scheduled_payments_status"),
+    path("trigger-scheduled-payments/", views.trigger_scheduled_payments, name="trigger_scheduled_payments"),
+    path("scheduled-payments-status/", views.get_scheduled_payments_status, name="scheduled_payments_status"),
+    path("test/create-schedule/", views.create_test_schedule, name="create_test_schedule"),
+    path("test/check-payment-timing/<int:receiver_id>/", views.check_payment_timing, name="check_payment_timing"),
 ]
