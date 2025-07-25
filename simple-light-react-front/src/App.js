@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import PaymentScheduleForm from './components/PaymentScheduleForm';
 import PaymentScheduleList from './components/PaymentScheduleList';
 import CustomerForm from './components/CustomerForm';
+import TestFunctions from './components/TestFunctions';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
   const [activeTab, setActiveTab] = useState('customers');
@@ -32,11 +34,20 @@ function App() {
         >
           View Schedules
         </div>
+        <div 
+          className={`tab ${activeTab === 'test' ? 'active' : ''}`}
+          onClick={() => setActiveTab('test')}
+        >
+          🧪 Test 5-Min
+        </div>
       </div>
 
-      {activeTab === 'customers' && <CustomerForm />}
-      {activeTab === 'create' && <PaymentScheduleForm />}
-      {activeTab === 'view' && <PaymentScheduleList />}
+      <ErrorBoundary>
+        {activeTab === 'customers' && <CustomerForm />}
+        {activeTab === 'create' && <PaymentScheduleForm />}
+        {activeTab === 'view' && <PaymentScheduleList />}
+        {activeTab === 'test' && <TestFunctions />}
+      </ErrorBoundary>
     </div>
   );
 }

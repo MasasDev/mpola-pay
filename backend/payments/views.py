@@ -1,5 +1,6 @@
 # views.py
 import requests
+from datetime import timedelta
 from rest_framework.views import APIView
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -17,7 +18,7 @@ from .serializers import (
 )
 from django.conf import settings
 from .models import BitnobCustomer, MobileTransaction, MobileReceiver, PaymentSchedule
-from .services.bitnob import lookup_mobile, request_mobile_invoice, pay_mobile_invoice
+from .services.bitnob import lookup_mobile, request_mobile_invoice, pay_mobile_invoice, create_and_pay_mobile_invoice
 
 from .models import PaymentSchedule, FundTransaction
 import uuid
@@ -25,7 +26,7 @@ import uuid
 
 
 
-BITNOB_BASE = "https://sandboxapi.bitnob.co/api/v1"
+BITNOB_BASE = "https://api.bitnob.co/api/v1"
 HEADERS = {
     "Authorization": f"Bearer {settings.BITNOB_API_KEY}",
     "Content-Type": "application/json",
@@ -111,17 +112,44 @@ class CreateBitnobCustomer(APIView):
                 
                 else:
                     # Bitnob API failed
+                    bitnob_error = res.json() if res.content else {"message": "Unknown error"}
+                    
+                    # Handle specific error cases
+                    if res.status_code == 403:
+                        error_msg = "Access denied by payment provider. This might be due to IP restrictions or API configuration issues."
+                    elif res.status_code == 401:
+                        error_msg = "Authentication failed with payment provider. Please check API credentials."
+                    elif res.status_code == 429:
+                        error_msg = "Too many requests to payment provider. Please try again later."
+                    else:
+                        error_msg = f"Payment provider error (Code: {res.status_code})"
+                    
                     return Response({
-                        "error": "Failed to create customer in Bitnob",
-                        "detail": res.json()
-                    }, status=res.status_code)
+                        "error": error_msg,
+                        "message": error_msg,  # Alternative field name for frontend compatibility
+                        "detail": bitnob_error.get("message", str(bitnob_error)),
+                        "provider_error": bitnob_error
+                    }, status=400)  # Always return 400 for client errors to prevent frontend crashes
                     
             except requests.exceptions.RequestException as api_error:
                 # Network or API error
+                error_type = type(api_error).__name__
+                
+                if "Connection" in str(api_error) or "refused" in str(api_error).lower():
+                    error_msg = "Cannot connect to payment provider. The service may be temporarily unavailable."
+                elif "timeout" in str(api_error).lower():
+                    error_msg = "Connection to payment provider timed out. Please try again."
+                elif "ssl" in str(api_error).lower():
+                    error_msg = "Secure connection to payment provider failed."
+                else:
+                    error_msg = f"Network error when connecting to payment provider: {error_type}"
+                
                 return Response({
-                    "error": "Failed to connect to Bitnob API",
-                    "detail": str(api_error)
-                }, status=500)
+                    "error": error_msg,
+                    "message": error_msg,
+                    "detail": str(api_error),
+                    "error_type": error_type
+                }, status=503)  # Service Unavailable
                 
         print(f"Serializer errors: {serializer.errors}")  # Debug log
         return Response(serializer.errors, status=400)
@@ -548,11 +576,12 @@ class InitiatePayout(APIView):
 
         # 2. Request invoice
         invoice = request_mobile_invoice(country, number, sender, amount, callback_url=None)
-        if not invoice.get("status"):
+        if not invoice.get("success"):
             return Response({"error": "Invoice failed", "detail": invoice}, status=400)
 
-        ref = invoice["data"]["reference"]
-        payment_req = invoice["data"]["paymentRequest"]
+        ref = invoice["reference"]
+        invoice_id = invoice["id"]
+        payment_req = invoice["response"]["data"]["paymentRequest"]
 
         # 3. Record transaction and pay
         next_installment = receiver.next_installment()
@@ -579,7 +608,7 @@ class InitiatePayout(APIView):
             
             # Use the receiver's customer email for the payment
             customer_email = receiver.customer.email
-            pay = pay_mobile_invoice(customer_email, ref, wallet="USD")
+            pay = pay_mobile_invoice(customer_email, reference=ref, invoice_id=invoice_id, wallet="USD")
             if not pay.get("status"):
                 txn.status = "failed"
                 txn.failure_reason = pay.get("message", "Payment failed")
@@ -868,50 +897,95 @@ class CreateUSDTDepositView(APIView):
         # Calculate remaining amount needed
         remaining_amount = schedule.funding_shortfall
 
-        # 1. Get UGX to USD rate (with fallback for testing)
+        # 1. Get UGX to USD rate
         try:
-            rate_resp = requests.get(f"{BITNOB_BASE}/exchange-rates", headers=HEADERS)
-            rate_resp.raise_for_status()
-            rate_data = rate_resp.json().get("data", [])
-            ugx_rate = next((item["rate"] for item in rate_data if item["currency"] == "UGX"), None)
+            print(f"[BITNOB API] Fetching exchange rates from: {BITNOB_BASE}/wallets/payout/rates")
+            rate_resp = requests.get(f"{BITNOB_BASE}/wallets/payout/rates", headers=HEADERS)
+            print(f"[BITNOB API] Exchange rates response status: {rate_resp.status_code}")
+            print(f"[BITNOB API] Exchange rates response headers: {dict(rate_resp.headers)}")
+            print(f"[BITNOB API] Exchange rates response body: {rate_resp.text}")
             
+            rate_resp.raise_for_status()
+            rate_data = rate_resp.json().get("data", {})
+            ugx_data = rate_data.get("UGX")
+            
+            if not ugx_data:
+                print(f"[BITNOB API] ERROR: UGX rate not found in response data: {rate_data}")
+                return Response({
+                    "error": "UGX exchange rate not available",
+                    "detail": "Unable to fetch current UGX to USD exchange rate from Bitnob"
+                }, status=503)
+            
+            # Use buyRate for converting from UGX to USD (we're buying USD with UGX)
+            ugx_rate = ugx_data.get("buyRate")
             if not ugx_rate:
-                raise ValueError("UGX rate not found in response")
+                print(f"[BITNOB API] ERROR: UGX buyRate not found in UGX data: {ugx_data}")
+                return Response({
+                    "error": "UGX exchange rate format invalid",
+                    "detail": "UGX buyRate not available in Bitnob response"
+                }, status=503)
                 
+            print(f"[BITNOB API] UGX rates - sellRate: {ugx_data.get('sellRate')}, buyRate: {ugx_data.get('buyRate')}")
+            print(f"[BITNOB API] Using UGX buyRate for conversion: {ugx_rate}")
+            print(f"[BITNOB API] Successfully retrieved UGX rate: {ugx_rate}")
+                
+        except requests.exceptions.RequestException as e:
+            print(f"[BITNOB API] ERROR: Exchange rate API request failed: {str(e)}")
+            return Response({
+                "error": "Exchange rate service unavailable",
+                "detail": "Unable to connect to Bitnob exchange rate service"
+            }, status=503)
         except Exception as e:
-            # Fallback rate for testing (approximate UGX to USD rate)
-            print(f"Warning: Using fallback exchange rate due to API error: {str(e)}")
-            ugx_rate = 3700  # Approximate UGX to USD rate for testing
-            print(f"Using fallback UGX rate: {ugx_rate}")
+            print(f"[BITNOB API] ERROR: Unexpected error fetching exchange rates: {str(e)}")
+            return Response({
+                "error": "Exchange rate fetch failed",
+                "detail": str(e)
+            }, status=500)
 
         usd_amount = float(remaining_amount) / float(ugx_rate)
         usdt_amount = round(usd_amount, 6)
+        print(f"[BITNOB API] Calculated amounts - UGX: {remaining_amount}, USD: {usd_amount}, USDT: {usdt_amount}")
 
-        # 2. Generate deposit address (with mock for testing)
+        # 2. Generate deposit address
         try:
+            address_payload = { "customerEmail": f"{schedule.customer.email}", "label": f"Payment Schedule {schedule.id} - {schedule.title}"}
+            print(f"[BITNOB API] Generating deposit address for network: {network}")
+            print(f"[BITNOB API] Address generation payload: {address_payload}")
+            
             addr_resp = requests.post(
-                f"{BITNOB_BASE}/stablecoins/generate-address",
+                f"{BITNOB_BASE}/addresses/tron/generate",
                 headers=HEADERS,
-                json={"currency": "USDT", "network": network}
+                json=address_payload
             )
+            print(f"[BITNOB API] Address generation response status: {addr_resp.status_code}")
+            print(f"[BITNOB API] Address generation response headers: {dict(addr_resp.headers)}")
+            print(f"[BITNOB API] Address generation response body: {addr_resp.text}")
+            
             addr_resp.raise_for_status()
             address_data = addr_resp.json()
             
             if not address_data.get("status") or "data" not in address_data:
-                raise ValueError(f"Invalid response: {address_data}")
+                print(f"[BITNOB API] ERROR: Invalid address generation response: {address_data}")
+                return Response({
+                    "error": "Address generation failed",
+                    "detail": "Invalid response from Bitnob address generation service"
+                }, status=503)
                 
             address = address_data["data"]["address"]
+            print(f"[BITNOB API] Successfully generated deposit address: {address}")
             
+        except requests.exceptions.RequestException as e:
+            print(f"[BITNOB API] ERROR: Address generation API request failed: {str(e)}")
+            return Response({
+                "error": "Address generation service unavailable",
+                "detail": "Unable to connect to Bitnob address generation service"
+            }, status=503)
         except Exception as e:
-            # Generate a mock address for testing
-            print(f"Warning: Using mock deposit address due to API error: {str(e)}")
-            mock_addresses = {
-                "TRON": "TQMfFzQQQQQQQQQQQQQQQQQQQQQQQQTest",
-                "ETHEREUM": "0x1234567890123456789012345678901234567890",
-                "BSC": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
-                "POLYGON": "0x9876543210987654321098765432109876543210"
-            }
-            address = mock_addresses.get(network, "mock_address_for_testing")
+            print(f"[BITNOB API] ERROR: Unexpected error generating address: {str(e)}")
+            return Response({
+                "error": "Address generation failed",
+                "detail": str(e)
+            }, status=500)
 
         # 3. Save FundTransaction
         ref = str(uuid.uuid4())
@@ -1194,25 +1268,51 @@ def get_scheduled_payments_status(request):
 @permission_classes([AllowAny])
 @csrf_exempt
 def create_test_schedule(request):
-    """Create a test payment schedule with 2-minute frequency for testing"""
+    """Create a test payment schedule with configurable frequency for testing"""
+    # Get frequency from request, default to 30 seconds
+    frequency = request.data.get('frequency', 'test_30sec')
+    
+    # Validate frequency
+    valid_frequencies = ['test_30sec', 'test_2min', 'test_5min', 'hourly', 'daily', 'weekly', 'monthly']
+    if frequency not in valid_frequencies:
+        return Response({
+            "error": f"Invalid frequency: {frequency}",
+            "valid_frequencies": valid_frequencies
+        }, status=400)
+    
+    # Generate unique customer email for this test
+    import random
+    unique_suffix = random.randint(1000, 9999)
+    customer_email = f"test_{unique_suffix}@example.com"
+    
     # Get or create a test customer
     test_customer, created = BitnobCustomer.objects.get_or_create(
-        email="test@example.com",
+        email=customer_email,
         defaults={
             "first_name": "Test",
             "last_name": "User",
-            "phone": "+256700000000",
-            "country_code": "UG",
-            "bitnob_id": "test_customer_id"
+            "phone": f"+256700{unique_suffix:06d}",
+            "country_code": "256",
+            "bitnob_id": f"test_customer_{unique_suffix}"
         }
     )
     
-    # Create test payment schedule with 2-minute frequency
+    # Create test payment schedule with specified frequency
+    frequency_titles = {
+        'test_30sec': "Test 30-Second Schedule",
+        'test_2min': "Test 2-Minute Schedule", 
+        'test_5min': "Test 5-Minute Schedule",
+        'hourly': "Test Hourly Schedule",
+        'daily': "Test Daily Schedule",
+        'weekly': "Test Weekly Schedule",
+        'monthly': "Test Monthly Schedule"
+    }
+    
     schedule = PaymentSchedule.objects.create(
         customer=test_customer,
-        title="Test 30-Second Schedule",
-        description="Test schedule with 30-second intervals for testing",
-        frequency="test_30sec",
+        title=frequency_titles.get(frequency, f"Test {frequency} Schedule"),
+        description=f"Test schedule with {frequency} intervals for Bitnob API testing",
+        frequency=frequency,
         subtotal_amount=1000,
         processing_fee=15,
         total_amount=1015,
@@ -1220,13 +1320,13 @@ def create_test_schedule(request):
         is_funded=True  # Mark as funded for testing
     )
     
-    # Create test receiver
+    # Create test receiver with realistic phone number
     receiver = MobileReceiver.objects.create(
         payment_schedule=schedule,
         customer=test_customer,
         name="Test Receiver",
-        phone="+256700000001",
-        country_code="UG",
+        phone=f"77{unique_suffix:07d}",  # Generate valid Uganda phone format
+        country_code="256",
         amount_per_installment=100,
         number_of_installments=10
     )
@@ -1243,25 +1343,287 @@ def create_test_schedule(request):
     )
     
     return Response({
-        "message": "Test schedule created successfully",
+        "message": f"Test schedule created successfully with {frequency} frequency",
         "schedule": {
             "id": str(schedule.id),
             "title": schedule.title,
             "frequency": schedule.frequency,
             "next_payment_date": schedule.next_payment_date,
             "is_payment_due": schedule.is_payment_due(),
-            "current_time": timezone.now()
+            "current_time": timezone.now(),
+            "customer_email": customer_email
         },
         "receiver": {
             "id": receiver.id,
             "name": receiver.name,
             "phone": receiver.phone,
-            "can_receive_payment": receiver.can_receive_next_installment()
+            "country_code": receiver.country_code,
+            "can_receive_payment": receiver.can_receive_next_installment(),
+            "amount_per_installment": str(receiver.amount_per_installment)
+        },
+        "bitnob_integration": {
+            "will_call_bitnob_api": True,
+            "payment_provider": "Bitnob",
+            "api_endpoint": f"{BITNOB_BASE}/mobile-payments/initiate"
         }
     }, status=201)
 
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@csrf_exempt
+def create_5min_test_payment(request):
+    """Create a 5-minute test schedule and immediately trigger a Bitnob API payment"""
+    
+    # First create a 5-minute test schedule
+    create_schedule_data = {'frequency': 'test_5min'}
+    
+    # Generate unique identifiers
+    import random
+    unique_suffix = random.randint(10000, 99999)
+    customer_email = f"test_5min_{unique_suffix}@example.com"
+    
+    # Create customer for Bitnob API
+    test_customer, created = BitnobCustomer.objects.get_or_create(
+        email=customer_email,
+        defaults={
+            "first_name": "Test5Min",
+            "last_name": "User",
+            "phone": f"77{unique_suffix:07d}",
+            "country_code": "256",
+            "bitnob_id": f"test_5min_{unique_suffix}"
+        }
+    )
+    
+    # Create 5-minute payment schedule
+    schedule = PaymentSchedule.objects.create(
+        customer=test_customer,
+        title="5-Minute Bitnob Test Schedule",
+        description="Test schedule with 5-minute intervals for live Bitnob API testing",
+        frequency="test_5min",
+        subtotal_amount=2000,  # Slightly higher amount for testing
+        processing_fee=30,
+        total_amount=2030,
+        start_date=timezone.now(),
+        is_funded=True
+    )
+    
+    # Create receiver with realistic Uganda phone number
+    receiver = MobileReceiver.objects.create(
+        payment_schedule=schedule,
+        customer=test_customer,
+        name=f"Test Receiver 5Min {unique_suffix}",
+        phone=f"77{unique_suffix:07d}",
+        country_code="256",
+        amount_per_installment=200,  # 200 UGX per installment
+        number_of_installments=10
+    )
+    
+    # Fund the schedule
+    from .models import FundTransaction
+    import uuid
+    fund_txn = FundTransaction.objects.create(
+        schedule=schedule,
+        reference=str(uuid.uuid4()),
+        amount=2030,
+        currency="UGX", 
+        status="paid"
+    )
+    
+    # Now immediately trigger a payment to test Bitnob API
+    try:
+        # Force the payment to be due by setting last_payment_date to past
+        schedule.last_payment_date = timezone.now() - timedelta(minutes=6)
+        schedule.save()
+        
+        # Get payment details
+        country = receiver.country_code
+        number = receiver.phone
+        sender = f"{test_customer.first_name} {test_customer.last_name}"
+        amount = int(float(receiver.amount_per_installment) * 100)  # Convert to cents
+        
+        # Check if payment is now due
+        can_pay, timing_message = receiver.can_receive_next_installment()
+        if not can_pay:
+            return Response({
+                "error": "Payment timing validation failed",
+                "timing_message": timing_message,
+                "schedule_created": True,
+                "schedule_id": str(schedule.id)
+            }, status=400)
+        
+        # 1. Optional mobile lookup (Bitnob API call #1)
+        lookup_result = None
+        try:
+            lookup_result = lookup_mobile(country, number)
+            print(f"Bitnob Mobile Lookup Result: {lookup_result}")
+        except Exception as lookup_error:
+            print(f"Mobile lookup failed (continuing anyway): {lookup_error}")
+            lookup_result = {"status": False, "error": str(lookup_error)}
+        
+        # 2. Request mobile invoice (Bitnob API call #2) 
+        invoice_result = request_mobile_invoice(country, number, sender, amount, callback_url=None)
+        print(f"Bitnob Invoice Request Result: {invoice_result}")
+        
+        if not invoice_result.get("success"):
+            return Response({
+                "error": "Failed to create Bitnob invoice",
+                "bitnob_error": invoice_result,
+                "schedule_created": True,
+                "schedule_id": str(schedule.id),
+                "lookup_result": lookup_result
+            }, status=400)
+        
+        # Extract reference and payment request from invoice
+        ref = invoice_result["reference"]
+        invoice_id = invoice_result["id"]
+        payment_req = invoice_result["response"]["data"]["paymentRequest"]
+        
+        # 3. Create transaction record
+        next_installment = receiver.next_installment()
+        txn = MobileTransaction.objects.create(
+            receiver=receiver,
+            amount=amount/100,  # Convert back to original amount
+            installment_number=next_installment,
+            reference=ref,
+            sent_at=timezone.now(),
+            status="processing"
+        )
+        
+        # 4. Pay the invoice (Bitnob API call #3)
+        pay_result = pay_mobile_invoice(test_customer.email, reference=ref, invoice_id=invoice_id, wallet="USD")
+        print(f"Bitnob Payment Result: {pay_result}")
+        
+        if not pay_result.get("status"):
+            txn.status = "failed"
+            txn.failure_reason = pay_result.get("message", "Payment failed")
+            txn.save()
+            
+            return Response({
+                "error": "Failed to process Bitnob payment",
+                "bitnob_payment_error": pay_result,
+                "transaction_created": True,
+                "transaction_id": txn.id,
+                "reference": ref,
+                "schedule_created": True,
+                "schedule_id": str(schedule.id),
+                "lookup_result": lookup_result,
+                "invoice_result": invoice_result
+            }, status=400)
+        
+        # Success! Update transaction status
+        txn.status = "processing"  # Will be updated to 'success' via webhook
+        txn.save()
+        
+        return Response({
+            "message": "5-minute test schedule created and first payment initiated successfully!",
+            "success": True,
+            "bitnob_api_calls": {
+                "lookup": lookup_result,
+                "invoice": invoice_result,
+                "payment": pay_result
+            },
+            "schedule": {
+                "id": str(schedule.id),
+                "title": schedule.title,
+                "frequency": schedule.frequency,
+                "next_payment_date": schedule.next_payment_date,
+                "customer_email": customer_email
+            },
+            "receiver": {
+                "id": receiver.id,
+                "name": receiver.name,
+                "phone": receiver.phone,
+                "country_code": receiver.country_code,
+                "amount_per_installment": str(receiver.amount_per_installment)
+            },
+            "transaction": {
+                "id": txn.id,
+                "reference": ref,
+                "amount": str(txn.amount),
+                "installment_number": next_installment,
+                "status": txn.status,
+                "payment_request": payment_req
+            },
+            "next_steps": [
+                "Transaction is now processing with Bitnob",
+                "Webhook will update status to 'success' when payment completes",
+                f"Next payment will be due in 5 minutes: {schedule.calculate_next_payment_date()}",
+                "Use the trigger_scheduled_payments endpoint to process future payments"
+            ]
+        }, status=201)
+        
+    except Exception as payment_error:
+        return Response({
+            "error": "Failed to initiate test payment",
+            "detail": str(payment_error),
+            "schedule_created": True,
+            "schedule_id": str(schedule.id),
+            "note": "Schedule was created successfully, but payment initiation failed"
+        }, status=500)
+
+
 @api_view(['GET'])
+@permission_classes([AllowAny])
+@csrf_exempt  
+def check_bitnob_api_status(request):
+    """Check Bitnob API connectivity and configuration"""
+    try:
+        # Test API connectivity with a simple call
+        response = requests.get(f"{BITNOB_BASE}/exchange-rates", headers=HEADERS, timeout=10)
+        
+        api_status = {
+            "bitnob_base_url": BITNOB_BASE,
+            "api_key_configured": bool(settings.BITNOB_API_KEY),
+            "api_key_prefix": settings.BITNOB_API_KEY[:10] + "..." if settings.BITNOB_API_KEY else None,
+            "connectivity_test": {
+                "status_code": response.status_code,
+                "success": response.status_code == 200,
+                "response_time_ms": response.elapsed.total_seconds() * 1000
+            }
+        }
+        
+        if response.status_code == 200:
+            try:
+                rates_data = response.json()
+                api_status["sample_data"] = {
+                    "exchange_rates_available": len(rates_data.get("data", [])),
+                    "sample_currencies": [item["currency"] for item in rates_data.get("data", [])[:5]]
+                }
+            except:
+                api_status["sample_data"] = "Could not parse response"
+        else:
+            api_status["error"] = response.text
+            
+        return Response({
+            "message": "Bitnob API Status Check",
+            "api_status": api_status,
+            "recommendations": [
+                "Use POST /api/test/create-5min-payment/ to create a 5-minute test schedule with live API calls",
+                "Use POST /api/test/create-schedule/ with {'frequency': 'test_5min'} for basic schedule creation",
+                "Use POST /api/trigger-scheduled-payments/ to process all due payments",
+                "Monitor /api/scheduled-payments-status/ for payment processing status"
+            ]
+        })
+        
+    except requests.exceptions.RequestException as e:
+        return Response({
+            "message": "Bitnob API Status Check Failed",
+            "error": str(e),
+            "api_configuration": {
+                "bitnob_base_url": BITNOB_BASE,
+                "api_key_configured": bool(settings.BITNOB_API_KEY)
+            },
+            "troubleshooting": [
+                "Check internet connectivity",
+                "Verify BITNOB_API_KEY is correctly set in settings",
+                "Ensure API key has proper permissions",
+                "Check if your IP is whitelisted with Bitnob"
+            ]
+        }, status=503)
+
+
+@api_view(['POST'])
 @permission_classes([AllowAny])
 @csrf_exempt
 def check_payment_timing(request, receiver_id):

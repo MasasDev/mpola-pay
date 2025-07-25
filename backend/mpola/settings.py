@@ -140,7 +140,7 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-BITNOB_API_KEY = 'sk.3a846ff0dfb8.7e7ddae08f05636a83433470b'
+BITNOB_API_KEY = 'sk.c554a3521422.674984eae5c2442658b9eb046'
 
 # Celery Configuration
 CELERY_BROKER_URL = 'redis://localhost:6379/0'

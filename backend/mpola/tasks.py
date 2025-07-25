@@ -5,7 +5,7 @@ from django.db import transaction
 from datetime import datetime, timedelta
 import logging
 from payments.models import PaymentSchedule, MobileReceiver, MobileTransaction
-from payments.services.bitnob import request_mobile_invoice, pay_mobile_invoice
+from payments.services.bitnob import request_mobile_invoice, pay_mobile_invoice, create_and_pay_mobile_invoice
 
 logger = logging.getLogger(__name__)
 
@@ -197,14 +197,15 @@ def initiate_automated_payment(receiver, installment_number):
                     callback_url=None
                 )
                 
-                if not invoice.get("status"):
+                if not invoice.get("success"):
                     raise Exception(f"Invoice failed: {invoice}")
                 
-                ref = invoice["data"]["reference"]
+                ref = invoice["reference"]
+                invoice_id = invoice["id"]
                 
                 # Pay the invoice
                 customer_email = receiver.customer.email
-                pay = pay_mobile_invoice(customer_email, ref, wallet="USD")
+                pay = pay_mobile_invoice(customer_email, reference=ref, invoice_id=invoice_id, wallet="USD")
                 
                 if not pay.get("status"):
                     txn.status = "failed"

@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { paymentScheduleAPI } from '../api';
+import FundingModal from './FundingModal';
 
 const PaymentScheduleList = () => {
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [fundingModal, setFundingModal] = useState({
+    isOpen: false,
+    data: null,
+    scheduleTitle: ''
+  });
 
   useEffect(() => {
     fetchSchedules();
@@ -74,25 +80,13 @@ const PaymentScheduleList = () => {
         const response = await paymentScheduleAPI.fundSchedule(scheduleId, selectedNetwork);
         const data = response.data;
         
-        // Show funding instructions to user
-        const instructions = `
-FUNDING INSTRUCTIONS:
-
-Network: ${data.funding_details.network}
-Amount: ${data.funding_details.usdt_required} USDT
-Deposit Address: ${data.funding_details.deposit_address}
-
-${data.instructions.step_1}
-${data.instructions.step_2}
-${data.instructions.step_3}
-${data.instructions.step_4}
-
-Reference: ${data.funding_details.reference}
-
-⚠️ IMPORTANT: Make sure to use the correct network (${data.funding_details.network}) when sending USDT!
-        `;
+        // Open the funding modal instead of showing alert
+        setFundingModal({
+          isOpen: true,
+          data: data,
+          scheduleTitle: schedule.title
+        });
         
-        alert(instructions);
         fetchSchedules(); // Refresh the list
       } catch (error) {
         console.error('Funding error:', error);
@@ -128,6 +122,14 @@ Reference: ${data.funding_details.reference}
     } catch (error) {
       alert(`Failed to ${action} schedule`);
     }
+  };
+
+  const closeFundingModal = () => {
+    setFundingModal({
+      isOpen: false,
+      data: null,
+      scheduleTitle: ''
+    });
   };
 
   const formatDate = (dateString) => {
@@ -272,6 +274,14 @@ Reference: ${data.funding_details.reference}
       >
         Refresh
       </button>
+
+      {/* Funding Modal */}
+      <FundingModal
+        isOpen={fundingModal.isOpen}
+        onClose={closeFundingModal}
+        fundingData={fundingModal.data}
+        scheduleTitle={fundingModal.scheduleTitle}
+      />
     </div>
   );
 };

@@ -1,0 +1,412 @@
+/* FundingModal.css */
+
+.funding-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.funding-modal {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.funding-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e5e5e5;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 12px 12px 0 0;
+}
+
+.funding-modal-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.8rem;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.close-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.funding-modal-content {
+  padding: 24px;
+}
+
+.schedule-info h3 {
+  margin: 0 0 16px 0;
+  color: #333;
+  font-size: 1.2rem;
+}
+
+.funding-summary {
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+
+.summary-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.summary-item:last-child {
+  margin-bottom: 0;
+}
+
+.summary-item .label {
+  color: #666;
+  font-weight: 500;
+}
+
+.summary-item .value {
+  font-weight: 600;
+  color: #333;
+}
+
+.deposit-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 768px) {
+  .deposit-section {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+.qr-section, .address-section {
+  text-align: center;
+}
+
+.qr-section h4, .address-section h4 {
+  margin: 0 0 12px 0;
+  color: #333;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.qr-code-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.qr-code {
+  border: 2px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 12px;
+  background: white;
+  display: inline-block;
+}
+
+.qr-note {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.address-container {
+  width: 100%;
+}
+
+.address-display {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #f8f9fa;
+  border: 2px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.address-text {
+  background: none;
+  border: none;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+  line-height: 1.4;
+  color: #333;
+  text-align: center;
+}
+
+.copy-button {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  align-self: center;
+}
+
+.copy-button:hover {
+  background: #0056b3;
+  transform: translateY(-1px);
+}
+
+.copy-button.copied {
+  background: #28a745;
+}
+
+.instructions-section {
+  margin-bottom: 24px;
+}
+
+.instructions-section h4 {
+  margin: 0 0 16px 0;
+  color: #333;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.instruction-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #007bff;
+}
+
+.step-number {
+  background: #007bff;
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.step-content strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #333;
+}
+
+.step-content p {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.warning-section {
+  margin-bottom: 20px;
+}
+
+.warning-box {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 8px;
+  padding: 16px;
+  color: #856404;
+}
+
+.warning-box strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #d63031;
+}
+
+.warning-box ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.warning-box li {
+  margin-bottom: 4px;
+}
+
+.reference-section {
+  background: #f8f9fa;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.reference-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reference-info .label {
+  color: #666;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.reference-id {
+  background: #e9ecef;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.8rem;
+  color: #495057;
+  flex: 1;
+  min-width: 200px;
+  word-break: break-all;
+}
+
+.copy-button-small {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background-color 0.2s;
+}
+
+.copy-button-small:hover {
+  background: #545b62;
+}
+
+.funding-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 20px 24px;
+  border-top: 1px solid #e5e5e5;
+  background: #f8f9fa;
+  border-radius: 0 0 12px 12px;
+}
+
+.btn-secondary {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #545b62;
+  transform: translateY(-1px);
+}
+
+.btn-primary {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  background: #0056b3;
+  transform: translateY(-1px);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .funding-modal-overlay {
+    padding: 10px;
+  }
+  
+  .funding-modal {
+    max-height: 95vh;
+  }
+  
+  .funding-modal-content {
+    padding: 16px;
+  }
+  
+  .funding-modal-header,
+  .funding-modal-footer {
+    padding: 16px;
+  }
+  
+  .address-text {
+    font-size: 0.8rem;
+  }
+  
+  .reference-info {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .funding-modal-footer {
+    flex-direction: column;
+  }
+  
+  .btn-primary,
+  .btn-secondary {
+    width: 100%;
+  }
+}

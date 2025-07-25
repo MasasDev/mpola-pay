@@ -18,5 +18,7 @@ urlpatterns = [
     path("trigger-scheduled-payments/", views.trigger_scheduled_payments, name="trigger_scheduled_payments"),
     path("scheduled-payments-status/", views.get_scheduled_payments_status, name="scheduled_payments_status"),
     path("test/create-schedule/", views.create_test_schedule, name="create_test_schedule"),
+    path("test/create-5min-payment/", views.create_5min_test_payment, name="create_5min_test_payment"),
+    path("test/bitnob-api-status/", views.check_bitnob_api_status, name="check_bitnob_api_status"),
     path("test/check-payment-timing/<int:receiver_id>/", views.check_payment_timing, name="check_payment_timing"),
 ]

@@ -44,9 +44,27 @@ const CustomerForm = () => {
       });
 
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 
-                          error.response?.data?.detail || 
-                          'Failed to create customer';
+      console.error('Customer creation error:', error);
+      
+      let errorMessage = 'Failed to create customer. Please try again.';
+      
+      if (error.response?.data) {
+        const errorData = error.response.data;
+        
+        // Try multiple possible error message fields
+        errorMessage = errorData.message || 
+                      errorData.error || 
+                      errorData.detail || 
+                      errorData.non_field_errors?.[0] ||
+                      errorMessage;
+        
+        // Handle specific error cases
+        if (errorData.provider_error) {
+          errorMessage += ` (Provider: ${errorData.provider_error.message || 'Unknown provider error'})`;
+        }
+      } else if (error.message) {
+        errorMessage = `Network error: ${error.message}`;
+      }
       
       setMessage({ 
         type: 'error', 
@@ -66,7 +84,41 @@ const CustomerForm = () => {
       
       {message.text && (
         <div className={message.type === 'error' ? 'error' : 'success'}>
+          {message.type === 'error' && '⚠️ '}
+          {message.type === 'success' && '✅ '}
           {message.text}
+          
+          {/* Add helpful tips for common errors */}
+          {message.type === 'error' && message.text.toLowerCase().includes('connect') && (
+            <div style={{ 
+              marginTop: '0.5rem', 
+              fontSize: '0.875rem', 
+              color: '#666',
+              padding: '0.5rem',
+              backgroundColor: '#f8f9fa',
+              borderRadius: '4px'
+            }}>
+              💡 <strong>Troubleshooting Tips:</strong>
+              <ul style={{ margin: '0.5rem 0 0 0', paddingLeft: '1.5rem' }}>
+                <li>Check your internet connection</li>
+                <li>Verify the backend server is running</li>
+                <li>Contact support if the problem persists</li>
+              </ul>
+            </div>
+          )}
+          
+          {message.type === 'error' && message.text.toLowerCase().includes('provider') && (
+            <div style={{ 
+              marginTop: '0.5rem', 
+              fontSize: '0.875rem', 
+              color: '#666',
+              padding: '0.5rem',
+              backgroundColor: '#f8f9fa',
+              borderRadius: '4px'
+            }}>
+              💡 This is likely a temporary issue with our payment provider. Please try again in a few minutes.
+            </div>
+          )}
         </div>
       )}
 

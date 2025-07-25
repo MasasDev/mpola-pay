@@ -12,22 +12,63 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Function to check and install requirements
+check_requirements() {
+    echo -e "${BLUE}Checking Python requirements...${NC}"
+    
+    # Check if we're in a virtual environment
+    if [[ "$VIRTUAL_ENV" != "" ]]; then
+        echo -e "${GREEN}✅ Virtual environment detected: $VIRTUAL_ENV${NC}"
+    else
+        echo -e "${YELLOW}⚠️  No virtual environment detected. Consider using one.${NC}"
+    fi
+    
+    # Check for required packages
+    python -c "import django_celery_beat" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo -e "${YELLOW}⚠️  django_celery_beat not found. Installing requirements...${NC}"
+        pip install -r requirements.txt
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}❌ Failed to install requirements${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}✅ Requirements installed${NC}"
+    else
+        echo -e "${GREEN}✅ All required packages are installed${NC}"
+    fi
+}
+
 # Check if Redis is running
-echo -e "${BLUE}Checking Redis connection...${NC}"
-if redis-cli ping > /dev/null 2>&1; then
-    echo -e "${GREEN}✅ Redis is running${NC}"
-else
-    echo -e "${RED}❌ Redis is not running. Please start Redis first:${NC}"
-    echo -e "${YELLOW}   brew services start redis${NC}"
-    echo -e "${YELLOW}   # OR${NC}"
-    echo -e "${YELLOW}   redis-server${NC}"
-    exit 1
-fi
+check_redis() {
+    echo -e "${BLUE}Checking Redis connection...${NC}"
+    if redis-cli ping > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ Redis is running${NC}"
+    else
+        echo -e "${RED}❌ Redis is not running. Please start Redis first:${NC}"
+        echo -e "${YELLOW}   brew services start redis${NC}"
+        echo -e "${YELLOW}   # OR${NC}"
+        echo -e "${YELLOW}   redis-server${NC}"
+        exit 1
+    fi
+}
+
+# Check Django setup
+check_django() {
+    echo -e "${BLUE}Checking Django setup...${NC}"
+    cd /Users/arthur/developer_zone/mpola-pay/backend
+    python manage.py check --deploy 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✅ Django setup is valid${NC}"
+    else
+        echo -e "${YELLOW}⚠️  Django check failed, but continuing...${NC}"
+    fi
+}
 
 # Function to start Celery worker
 start_worker() {
     echo -e "\n${BLUE}Starting Celery Worker...${NC}"
-    PYTHONPATH=/Users/arthur/developer_zone/mpola-pay/backend celery -A mpola.celery worker --loglevel=info --pool=solo &
+    cd /Users/arthur/developer_zone/mpola-pay/backend
+    celery -A mpola.celery worker --loglevel=info --pool=solo &
     WORKER_PID=$!
     echo -e "${GREEN}✅ Celery Worker started (PID: $WORKER_PID)${NC}"
 }
@@ -35,7 +76,8 @@ start_worker() {
 # Function to start Celery beat scheduler
 start_beat() {
     echo -e "\n${BLUE}Starting Celery Beat Scheduler...${NC}"
-    PYTHONPATH=/Users/arthur/developer_zone/mpola-pay/backend celery -A mpola.celery beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler &
+    cd /Users/arthur/developer_zone/mpola-pay/backend
+    celery -A mpola.celery beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler &
     BEAT_PID=$!
     echo -e "${GREEN}✅ Celery Beat started (PID: $BEAT_PID)${NC}"
 }
@@ -44,7 +86,8 @@ start_beat() {
 start_monitor() {
     echo -e "\n${BLUE}Starting Celery Monitor (Flower)...${NC}"
     if command -v flower &> /dev/null; then
-        PYTHONPATH=/Users/arthur/developer_zone/mpola-pay/backend celery -A mpola.celery flower --port=5555 &
+        cd /Users/arthur/developer_zone/mpola-pay/backend
+        celery -A mpola.celery flower --port=5555 &
         FLOWER_PID=$!
         echo -e "${GREEN}✅ Celery Monitor (Flower) started (PID: $FLOWER_PID)${NC}"
         echo -e "${YELLOW}📊 Monitor available at: http://localhost:5555${NC}"
@@ -73,6 +116,11 @@ cleanup() {
 
 # Set trap to cleanup on script exit
 trap cleanup SIGINT SIGTERM
+
+# Run all checks first
+check_requirements
+check_redis
+check_django
 
 # Start services
 start_worker
