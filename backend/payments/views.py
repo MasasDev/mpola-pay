@@ -34,9 +34,11 @@ HEADERS = {
 
 class CreateBitnobCustomer(APIView):
     def post(self, request):
+        print(f"Received data: {request.data}")  # Debug log
         serializer = CustomerCreateSerializer(data=request.data)
         if serializer.is_valid():
             data = serializer.validated_data
+            print(f"Validated data: {data}")  # Debug log
             
             # Check if customer already exists locally
             existing_customer = BitnobCustomer.objects.filter(email=data["email"]).first()
@@ -57,7 +59,10 @@ class CreateBitnobCustomer(APIView):
             
             try:
                 # Call Bitnob API
+                print(f"Calling Bitnob API with payload: {payload}")  # Debug log
                 res = requests.post(f"{BITNOB_BASE}/customers", headers=HEADERS, json=payload)
+                print(f"Bitnob API response status: {res.status_code}")  # Debug log
+                print(f"Bitnob API response: {res.text}")  # Debug log
                 
                 # Check if Bitnob API was successful (200 or 201)
                 if res.status_code in [200, 201]:
@@ -118,6 +123,7 @@ class CreateBitnobCustomer(APIView):
                     "detail": str(api_error)
                 }, status=500)
                 
+        print(f"Serializer errors: {serializer.errors}")  # Debug log
         return Response(serializer.errors, status=400)
 
 class CreatePaymentPlan(APIView):
@@ -271,6 +277,133 @@ class PaymentScheduleListView(APIView):
             "payment_schedules": serializer.data,
             "count": len(serializer.data)
         })
+    
+    def post(self, request):
+        """Create a new payment schedule - same logic as CreatePaymentPlan"""
+        serializer = PaymentScheduleCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            data = serializer.validated_data
+            
+            try:
+                customer = BitnobCustomer.objects.get(email=data["email"])
+            except BitnobCustomer.DoesNotExist:
+                return Response({"error": "Customer not found"}, status=404)
+
+            # Calculate total amount across all receivers
+            subtotal_amount = 0
+            receivers_data = data["receivers"]
+            
+            # Validate receivers data and calculate subtotal
+            phone_numbers_in_schedule = set()
+            for r in receivers_data:
+                try:
+                    amount_per_installment = float(r["amountPerInstallment"])
+                    number_of_installments = int(r["numberOfInstallments"])
+                    subtotal_amount += amount_per_installment * number_of_installments
+                    
+                    # Check for duplicate phone numbers within this payment schedule
+                    phone = str(r["phone"]).strip()
+                    if phone in phone_numbers_in_schedule:
+                        return Response({
+                            "error": f"Duplicate phone number {phone} found in payment schedule. Each phone number can only appear once per schedule.",
+                            "detail": "Phone numbers must be unique within a payment schedule"
+                        }, status=400)
+                    phone_numbers_in_schedule.add(phone)
+                    
+                except (ValueError, TypeError) as e:
+                    return Response({
+                        "error": f"Invalid amount or installments for receiver {r.get('name', 'Unknown')}",
+                        "detail": str(e)
+                    }, status=400)
+
+            # Add 1.5% processing fee
+            processing_fee = subtotal_amount * 0.015
+            total_amount = subtotal_amount + processing_fee
+
+            try:
+                # Create the payment schedule with proper start_date handling
+                start_date = data.get("start_date")
+                if not start_date:
+                    start_date = timezone.now()
+                    
+                payment_schedule = PaymentSchedule.objects.create(
+                    customer=customer,
+                    title=data["title"],
+                    description=data.get("description", ""),
+                    frequency=data.get("frequency", "monthly"),
+                    subtotal_amount=subtotal_amount,
+                    processing_fee=round(processing_fee, 2),
+                    total_amount=round(total_amount, 2),
+                    start_date=start_date
+                )
+
+                # Create receivers for this payment schedule
+                created_receivers = []
+                for r in receivers_data:
+                    try:
+                        # Validate phone number format
+                        phone = str(r["phone"]).strip()
+                        country_code = str(r["countryCode"]).strip()
+                        
+                        if not phone or not country_code:
+                            raise ValueError("Phone number and country code are required")
+                        
+                        receiver = MobileReceiver.objects.create(
+                            payment_schedule=payment_schedule,
+                            customer=customer,
+                            name=r["name"],
+                            phone=phone,
+                            country_code=country_code,
+                            amount_per_installment=r["amountPerInstallment"],
+                            number_of_installments=r["numberOfInstallments"]
+                        )
+                        created_receivers.append({
+                            "id": receiver.id,
+                            "name": receiver.name,
+                            "phone": receiver.phone,
+                            "country_code": receiver.country_code,
+                            "total_amount": str(receiver.total_amount),
+                            "amount_per_installment": str(receiver.amount_per_installment),
+                            "installments": receiver.number_of_installments
+                        })
+                    except Exception as receiver_error:
+                        # If receiver creation fails, clean up the payment schedule
+                        payment_schedule.delete()
+                        
+                        # Check if it's a duplicate phone number error
+                        if "UNIQUE constraint failed" in str(receiver_error) or "unique_together" in str(receiver_error).lower():
+                            return Response({
+                                "error": f"Phone number {phone} is already used in this payment schedule",
+                                "detail": "Each phone number can only appear once per payment schedule"
+                            }, status=400)
+                        
+                        return Response({
+                            "error": f"Failed to create receiver {r.get('name', 'Unknown')}",
+                            "detail": str(receiver_error)
+                        }, status=400)
+
+                # Return payment schedule details
+                schedule_serializer = PaymentScheduleSerializer(payment_schedule)
+                return Response({
+                    "message": "Payment schedule created successfully",
+                    "payment_schedule": schedule_serializer.data,
+                    "receivers": created_receivers,
+                    "financial_summary": {
+                        "subtotal_amount": str(subtotal_amount),
+                        "processing_fee": str(round(processing_fee, 2)),
+                        "processing_fee_percentage": "1.5%",
+                        "total_amount": str(round(total_amount, 2))
+                    },
+                    "total_receivers": len(created_receivers)
+                }, status=201)
+                
+            except Exception as schedule_error:
+                return Response({
+                    "error": "Failed to create payment schedule",
+                    "detail": str(schedule_error)
+                }, status=500)
+                
+        return Response(serializer.errors, status=400)
 
 
 class PaymentScheduleDetailView(APIView):
